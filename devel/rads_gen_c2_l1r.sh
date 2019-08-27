@@ -1,6 +1,6 @@
 #!/bin/bash
 #-----------------------------------------------------------------------
-# Copyright (c) 2011-2016  Remko Scharroo
+# Copyright (c) 2011-2019  Remko Scharroo
 # See LICENSE.TXT file for copying and redistribution conditions.
 #
 # This program is free software: you can redistribute it and/or modify
@@ -45,8 +45,8 @@ for tar in $*; do
 done
 
 case $dir in
-	*FDM*) orbit_opt="-Valt_gdre --dir=gdr-e-moe" ;;
-	*LRM*) orbit_opt="-Valt_gdre" ;;
+	*FDM*) orbit_opt="-Valt_gdrf --dir=gdr-f-moe" ;;
+	*LRM*) orbit_opt="-Valt_gdrf" ;;
 esac
 
 rads_add_ncep    $options -gs               >> $log 2>&1

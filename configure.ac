@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------
-#  Copyright (c) 2011-2016  Remko Scharroo
+#  Copyright (c) 2011-2019  Remko Scharroo
 #  See LICENSE.TXT file for copying and redistribution conditions.
 #
 #  This program is free software: you can redistribute it and/or modify
@@ -19,7 +19,7 @@
 # -----------------------------------------------------------------
 # Define and show package version
 # -----------------------------------------------------------------
-AC_INIT([RADS], [4.2.4], [remko@altimetrics.com])
+AC_INIT([RADS], [4.3.6], [remko.scharroo@eumetsat.int])
 AC_PREREQ([2.67])
 AC_MSG_NOTICE([AC_PACKAGE_NAME, version AC_PACKAGE_VERSION])
 
@@ -37,9 +37,9 @@ AC_CANONICAL_SYSTEM
 # -----------------------------------------------------------------
 # Specify user options
 # -----------------------------------------------------------------
-AC_ARG_WITH([nf-config],  [  --with-nf-config=dir       Full path to nf-config [[auto]]])
-AC_ARG_WITH([netcdf-inc], [  --with-netcdf-inc=dir      Specify location of the netCDF include file [[auto]]])
-AC_ARG_WITH([netcdf-lib], [  --with-netcdf-lib=dir:dir  Specify location of the netCDF library.  Use colon-separator if Fortran library is in separate directory [[auto]]])
+AC_ARG_WITH([nf-config],  [  --with-nf-config=dir       Full path to nf-config (or nc-config) [[auto]]])
+AC_ARG_WITH([netcdf-inc], [  --with-netcdf-inc=dir      Specify location of the NetCDF include file [[auto]]])
+AC_ARG_WITH([netcdf-lib], [  --with-netcdf-lib=dir:dir  Specify location of the NetCDF library.  Use colon-separator if Fortran library is in separate directory [[auto]]])
 AC_ARG_ENABLE([debug],    [  --enable-debug             Compile with debugging options [[off]]])
 AC_ARG_ENABLE([devel],    [  --enable-devel             Compile developer tools [[off]]])
 
@@ -71,29 +71,15 @@ fi
 AC_MSG_RESULT([$enable_devel])
 
 # -----------------------------------------------------------------
-# Are you a git repository?
-# -----------------------------------------------------------------
-AC_MSG_CHECKING([whether this is a git repository])
-if test -f .git/index ; then
-	GIT_INDEX='../.git/index'
-	have_git='yes'
-else
-	GIT_INDEX=''
-	have_git='no'
-fi
-AC_MSG_RESULT([$have_git])
-AC_SUBST(GIT_INDEX)
-
-# -----------------------------------------------------------------
 # Default settings come from nf-config
 # -----------------------------------------------------------------
-AC_PATH_PROG([nf_config], [nf-config], [$with_nf_config])
+AC_PATH_PROGS([nf_config], [nf-config] [nc-config], [$with_nf_config])
 
 # -----------------------------------------------------------------
 # Find Fortran 90 compilers.
 # -----------------------------------------------------------------
 # If F90 is set, and FC isn't, then set FC to whatever F90 was set to.
-# Otherwise set it to what netCDF was compiled with
+# Otherwise set it to what NetCDF was compiled with
 AC_MSG_CHECKING([for Fortran 90 compiler])
 if test "${F90+set}" = "set"; then
 	F90=$F90
@@ -195,7 +181,7 @@ AC_SUBST(DEVEL_FLAGS)
 # -----------------------------------------------------------------
 # Allow user to set --with-netcdf-inc and/or --with-netcdf-lib
 # -----------------------------------------------------------------
-AC_MSG_CHECKING([for netCDF includes])
+AC_MSG_CHECKING([for NetCDF includes])
 if ! test "x$with_netcdf_inc" = "x" ; then
 	NETCDF_INC=$MOD_FLAG$with_netcdf_inc
 elif test -x "$nf_config" ; then
@@ -206,7 +192,7 @@ fi
 AC_MSG_RESULT([$NETCDF_INC])
 AC_SUBST(NETCDF_INC)
 
-AC_MSG_CHECKING([for netCDF libraries])
+AC_MSG_CHECKING([for NetCDF libraries])
 if ! test "x$with_netcdf_lib" = "x" ; then
 	NETCDF_LIB="-L"`echo $with_netcdf_lib | sed "s=:= -L="`" -lnetcdf"
 	doit="find "`echo $with_netcdf_lib | sed "s=:= ="`" -name libnetcdff*"
@@ -222,13 +208,16 @@ AC_MSG_RESULT([$NETCDF_LIB])
 AC_SUBST(NETCDF_LIB)
 
 # -----------------------------------------------------------------
-# Try to compile simple program with netCDF
+# Try to compile simple program with NetCDF
 # -----------------------------------------------------------------
-AC_MSG_CHECKING([if $FC can compile a netCDF program])
+AC_MSG_CHECKING([if $FC can compile a simple NetCDF program])
 cat <<EOF > conftest.f90
 program foo
+use typesizes
 use netcdf
+integer :: i = 0, j
 write (*,"(a)") nf90_inq_libvers()
+if (i == 1) j = nf90_def_var_deflate (0, 0, 0, 0, 0)
 end program
 EOF
 doit="$FC $FCFLAGS conftest.f90 -o conftest.exe $NETCDF_INC $NETCDF_LIB"
@@ -241,7 +230,7 @@ else
 	AC_MSG_WARN([no])
 	echo $doit
 	echo "========================================================"
-	echo "Could not compile simple Fortran 90 program with netCDF."
+	echo "Could not compile simple Fortran 90 program with NetCDF."
 	echo "One or more of the next problems occurred:"
 	echo "- The directory/directories containing libnetcdf/libnetcdff"
 	echo "  library/libraries were not/wrongly identified. Use the"
@@ -250,12 +239,14 @@ else
 	echo "- The directory containing netcdf.mod was not/wrongly"
 	echo "  identified. Use the --with-netcdf-inc=DIR option to"
 	echo "  specify the proper directory."
-	echo "- The netCDF library pointed to was not compiled with"
-	echo "  Fortran 90 support. Recompile the netCDF library with the"
+	echo "- The NetCDF library pointed to was not compiled with"
+	echo "  Fortran 90 support. Recompile the NetCDF library with the"
 	echo "  configuration flag --enable-f90"
 	echo "- Your compiler $FC does not properly compile Fortran 90 code."
 	echo "  Find another compiler and specify it on the command line"
 	echo "  using FC=<compilername>."
+	echo "- Your NetCDF Fortran library is too old. Use version 4.3"
+	echo "  or later."
 	echo "========================================================"
 	exit 1
 fi

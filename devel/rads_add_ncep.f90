@@ -1,5 +1,5 @@
 !-----------------------------------------------------------------------
-! Copyright (c) 2011-2016  Remko Scharroo
+! Copyright (c) 2011-2019  Remko Scharroo
 ! See LICENSE.TXT file for copying and redistribution conditions.
 !
 ! This program is free software: you can redistribute it and/or modify
@@ -499,7 +499,7 @@ write (*,600,advance='no') fn(i+1:l),hex
 
 call grid_free(info)
 
-! Open netCDF file
+! Open NetCDF file
 
 1300 format (a,': ',a)
 if (nft(nf90_open(fn,nf90_nowrite,ncid))) then

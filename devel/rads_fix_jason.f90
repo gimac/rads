@@ -1,5 +1,5 @@
 !-----------------------------------------------------------------------
-! Copyright (c) 2011-2016  Remko Scharroo
+! Copyright (c) 2011-2019  Remko Scharroo
 ! See LICENSE.TXT file for copying and redistribution conditions.
 !
 ! This program is free software: you can redistribute it and/or modify
@@ -13,10 +13,11 @@
 ! GNU Lesser General Public License for more details.
 !-----------------------------------------------------------------------
 
-!*rads_fix_j2 -- Patch RADS altimeter files of Jason-2 for various anomalies
+!*rads_fix_jason -- Patch RADS altimeter files of Jason-2/3 for various anomalies
 !
-! This program makes numerous patches to the Jason-2 RADS data processed
-! by rads_gen_j2. These patches include:
+! This program makes numerous patches to the RADS data for Jason-2/3
+! processed by rads_gen_jason, and originating from (O/I)GDR versions D
+! or E. These patches include:
 !
 ! sig0:
 ! - Adjust backscatter coefficient for apparent off-nadir angle
@@ -28,14 +29,18 @@
 ! wind:
 ! - Recompute wind speed from adjusted sigma0 based on Collard model
 !
-! usage: rads_fix_j2 [data-selectors] [options]
+! usage: rads_fix_jason [data-selectors] [options]
 !
 ! References:
+! Collard, F., Algorithmes de vent et periode moyenne des vagues JASON
+! a base de reseaux de neurons,
+! Rapport BO-021-CLS-0407-RF, Boost Technologies, 2005.
+!
 ! Quartly, G. D., Optimizing sigma0 information from Jason-2 altimeter,
 ! IEEE Geosci. Rem. Sens. Lett., 6(3), 398–402,
 ! doi:10.1109/LGRS.2009.2013973, 2009.
 !-----------------------------------------------------------------------
-program rads_fix_j2
+program rads_fix_jason
 
 use rads
 use rads_devel
@@ -60,9 +65,7 @@ call rads_set_options (' sig0 all rad: wind')
 call rads_init (S)
 do i = 1,rads_nopt
 	select case (rads_opt(i)%opt)
-	case ('sig0')
-		lsig0 = .true.
-	case ('all')
+	case ('sig0', 'all')
 		lsig0 = .true.
 	case ('rad')
 		read (rads_opt(i)%arg, *, iostat=ios) dwet
@@ -95,7 +98,7 @@ contains
 
 subroutine synopsis (flag)
 character(len=*), optional :: flag
-if (rads_version ('Patch Jason-2 data for several anomalies', flag=flag)) return
+if (rads_version ('Patch Jason-2/3 data for several anomalies', flag=flag)) return
 call synopsis_devel (' [processing_options]')
 write (*,1310)
 1310 format (/ &
@@ -163,4 +166,4 @@ if (lwind) call rads_put_var (S, P, 'wind_speed_alt', u)
 call log_records (n)
 end subroutine process_pass
 
-end program rads_fix_j2
+end program rads_fix_jason

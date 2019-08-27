@@ -1,5 +1,5 @@
 !****-------------------------------------------------------------------
-! Copyright (c) 2011-2016  Remko Scharroo
+! Copyright (c) 2011-2019  Remko Scharroo
 ! See LICENSE.TXT file for copying and redistribution conditions.
 !
 ! This program is free software: you can redistribute it and/or modify
@@ -64,13 +64,13 @@ character(len=*), intent(in) :: filenm
 type(grid), intent(inout) :: info
 !
 ! PURPOSE
-! This routine allocates memory and loads the contents of a netCDF
+! This routine allocates memory and loads the contents of a NetCDF
 ! grid file into the allocated memory. To save memory, the grid is stored
 ! in its original representation, i.e., 2- or 4-byte integer or
 ! 4- or 8-byte floats.
 !
 ! The argument filenm is the path name of the grid file. Optionally, one
-! can append '?varname' to load a specific variable ('varname') from a netCDF
+! can append '?varname' to load a specific variable ('varname') from a NetCDF
 ! grid. If not given, the first 2-dimensional grid is loaded.
 !
 ! All information about the grid is stored in the structure info.
@@ -155,7 +155,7 @@ info%filenm = filenm
 if (l > 1) then  ! Varname is given
 
 	if (nf90_open(filenm(:l-1),nf90_nowrite,ncid) /= 0) then
-		call grid_error (1, 'No such netCDF file '//filenm(:l-1))
+		call grid_error (1, 'No such NetCDF file '//filenm(:l-1))
 		return
 	endif
 	if (nf90_inq_varid(ncid,filenm(l+1:),z_id) /= 0) then
@@ -172,7 +172,7 @@ if (l > 1) then  ! Varname is given
 else ! Open grid file.
 
 	if (nf90_open(filenm,nf90_nowrite,ncid) /= 0) then
-		call grid_error (1, 'No such netCDF file '//trim(filenm))
+		call grid_error (1, 'No such NetCDF file '//trim(filenm))
 		return
 	endif
 
@@ -404,7 +404,7 @@ real(eightbytereal) :: grid_lininter
 ! using <grid_load>. Bi-linear interpolation is used whenever possible.
 !
 ! The location at which the grid is to be interpolated is given by
-! <x> and <y>. When the grid is geographical, the routine will attemp
+! <x> and <y>. When the grid is geographical, the routine will attempt
 ! to wrap <x> by a multiple of 360 degrees so that it is within the grid.
 !
 ! Upon exit, the function value grid_lininter will be the interpolated

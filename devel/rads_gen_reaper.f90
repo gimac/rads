@@ -1,5 +1,5 @@
 !-----------------------------------------------------------------------
-! Copyright (c) 2011-2016  Remko Scharroo
+! Copyright (c) 2011-2019  Remko Scharroo
 ! See LICENSE.TXT file for copying and redistribution conditions.
 !
 ! This program is free software: you can redistribute it and/or modify
@@ -27,7 +27,7 @@ program rads_gen_reaper
 !
 ! syntax: rads_gen_reaper [options] < list_of_REAPER_file_names
 !
-! This program handles only the REAPER ERS_ALT_2 files in netCDF format.
+! This program handles only the REAPER ERS_ALT_2 files in NetCDF format.
 !-----------------------------------------------------------------------
 !
 ! Variables array fields to be filled are:
@@ -86,6 +86,7 @@ use rads_gen
 use rads_netcdf
 use rads_misc
 use rads_time
+use rads_geo
 use netcdf
 
 ! Command line arguments
@@ -273,7 +274,7 @@ real(eightbytereal) :: a(nrec), b(nrec), c(nrec), d(20,nrec), dh(nrec)
 integer(twobyteint) :: flags(nrec)
 logical :: valid(20,nrec)
 integer(fourbyteint) :: k, kerr(4)
-real(eightbytereal) :: dhellips, t(3)
+real(eightbytereal) :: t(3)
 character(len=34) :: strerr(4) = (/ &
 'measurements out of time range   ', &
 'measurements out of time sequence', &
@@ -487,7 +488,7 @@ if (tnode(1) < times(1) .or. tnode(1) > times(2)) return	! Skip equator times th
 
 ! Update phase name if required
 phasenm(1) = strtolower(phasenm(1))
-if (S%phase%name /= phasenm(1)) S%phase => rads_get_phase (S, phasenm(1))
+call rads_set_phase (S, phasenm(1))
 
 ! Store relevant info
 call rads_init_pass_struct (S, P)

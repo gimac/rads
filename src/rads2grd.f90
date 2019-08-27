@@ -1,5 +1,5 @@
 !-----------------------------------------------------------------------
-! Copyright (c) 2011-2016  Remko Scharroo
+! Copyright (c) 2011-2019  Remko Scharroo
 ! See LICENSE.TXT file for copying and redistribution conditions.
 !
 ! This program is free software: you can redistribute it and/or modify
@@ -19,8 +19,6 @@ program rads2grd
 
 ! A Quick'n'dirty gridding program to grid a single
 ! RADS data variable against two others.
-!
-! usage: rads2grd sat=<sat> sel=x,y,z [RADS_options] [options]
 !-----------------------------------------------------------------------
 use rads
 use rads_misc
@@ -162,7 +160,7 @@ elsewhere
 	box%sum2 = sqrt(box%sum2/(box%nr - 1))
 endwhere
 
-! Write out xyz or netCDF grid
+! Write out xyz or NetCDF grid
 if (grid_name == '') then
 	call write_xyz_grid
 else
@@ -181,7 +179,7 @@ contains
 !***********************************************************************
 
 subroutine synopsis
-if (rads_version ('Quickly grid RADS data to xyz or netCDF grid')) return
+if (rads_version ('Quickly grid RADS data to xyz or NetCDF grid')) return
 call rads_synopsis
 write (*,1300)
 1300 format (/ &
@@ -192,7 +190,7 @@ write (*,1300)
 '  --res DX[,DY]             Set resolution in x and y (default: 1)'/ &
 '  --min MINNR               Minimum number of points per grid cell (default: 2)'/ &
 '  -o, --output, --grd GRIDNAME'/ &
-'                            Create netCDF grid (suppresses ASCII)'/ &
+'                            Create NetCDF grid (suppresses ASCII)'/ &
 '  --line-format FORMAT      Format to be used for ASCII output (default is determined by variables)'/ &
 '  -c                        Boundaries are cell oriented'/ &
 '  -c[x|y]                   Only [x|y]-boundaries are cell oriented')
@@ -260,7 +258,7 @@ enddo
 end subroutine write_xyz_grid
 
 !***********************************************************************
-! Write out netCDF grid
+! Write out NetCDF grid
 
 subroutine write_nc_grid (nvar)
 use netcdf
@@ -270,16 +268,17 @@ integer(fourbyteint), intent(in) :: nvar
 integer(fourbyteint) :: ncid,varid(nvar*2+3),dimid(2),j,k
 real(fourbytereal), parameter :: nan = transfer (not(0_fourbyteint),0e0)
 character(len=rads_varl) :: ext
+character(len=1) :: axis(2) = (/ 'X', 'Y' /)
 
 call nfs (nf90_create(grid_name,nf90_write+nf90_nofill,ncid))
-call nfs (nf90_put_att (ncid, nf90_global, 'Conventions', 'CF-1.5'))
+call nfs (nf90_put_att (ncid, nf90_global, 'Conventions', 'CF-1.7'))
 call nfs (nf90_put_att(ncid,nf90_global,'title',grid_name))
 call nfs (nf90_put_att(ncid,nf90_global,'history',timestamp()//' UTC: '//S(1)%command))
 if (all(c)) call nfs (nf90_put_att(ncid,nf90_global,'node_offset',1))
 
 do k = 1,2
 	call nf90_def_axis(ncid,S(1)%sel(k)%name,S(1)%sel(k)%long_name,S(1)%sel(k)%info%units,n(k), &
-		lo(k),hi(k),dimid(k),varid(k))
+		lo(k),hi(k),dimid(k),varid(k),axis(k),S(1)%sel(k)%info%standard_name)
 enddo
 
 ext = ''

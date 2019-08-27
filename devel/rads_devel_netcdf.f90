@@ -1,5 +1,5 @@
 !-----------------------------------------------------------------------
-! Copyright (c) 2011-2016  Remko Scharroo
+! Copyright (c) 2011-2019  Remko Scharroo
 ! See LICENSE.TXT file for copying and redistribution conditions.
 !
 ! This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,7 @@ module rads_devel_netcdf
 use typesizes
 use rads, only: rads_sat, rads_pass, rads_var
 
-integer(fourbyteint), parameter :: mrec=3500, mvar=70
+integer(fourbyteint), parameter :: mrec=3600, mvar=80
 integer(fourbyteint) :: nvar, nrec=0, ncid
 real(eightbytereal), allocatable :: a(:)
 integer(twobyteint), allocatable :: flags(:)
@@ -31,24 +31,59 @@ type(var_) :: var(mvar)
 type(rads_sat) :: S
 type(rads_pass) :: P
 
-contains
-
 !-----------------------------------------------------------------------
 ! Copy variable to RADS
 !-----------------------------------------------------------------------
+!
+! subroutine cpy_var (varin, varout, do)
+! use rads_devel
+! use rads_netcdf
+! character(len=*), intent(in) :: varin
+! character(len=*), intent(in), optional :: varout
+! Copy variable 'varin' from input (GDR) file to 'varout' in RADS output file.
+! When 'varout' is omitted, varout=varin.
+! When 'do' is present and false, the action is skipped.
+private :: cpy_var_1_do, cpy_var_2_do, cpy_var_1, cpy_var_2
+interface cpy_var
+	module procedure cpy_var_1
+	module procedure cpy_var_1_do
+	module procedure cpy_var_2
+	module procedure cpy_var_2_do
+end interface cpy_var
 
-subroutine cpy_var (varin, varout)
-use rads_devel
+contains
+
+subroutine cpy_var_1 (varin)
 use rads_netcdf
 character(len=*), intent(in) :: varin
-character(len=*), intent(in), optional :: varout
 call get_var (ncid, varin, a)
-if (present(varout)) then
-	call new_var (varout, a)
-else
-	call new_var (varin, a)
-endif
-end subroutine cpy_var
+call new_var (varin, a)
+end subroutine cpy_var_1
+
+subroutine cpy_var_1_do (varin, do)
+use rads_netcdf
+character(len=*), intent(in) :: varin
+logical, intent(in) :: do
+if (.not.do) return
+call get_var (ncid, varin, a)
+call new_var (varin, a)
+end subroutine cpy_var_1_do
+
+subroutine cpy_var_2 (varin, varout)
+use rads_netcdf
+character(len=*), intent(in) :: varin, varout
+call get_var (ncid, varin, a)
+call new_var (varout, a)
+end subroutine cpy_var_2
+
+subroutine cpy_var_2_do (varin, varout, do)
+use rads_netcdf
+character(len=*), intent(in) :: varin, varout
+logical, intent(in) :: do
+if (.not.do) return
+call get_var (ncid, varin, a)
+call new_var (varout, a)
+end subroutine cpy_var_2_do
 
 !-----------------------------------------------------------------------
 ! Create new RADS variable
@@ -80,13 +115,26 @@ do i = 1,nvar
 	var(i)%empty = all(isnan_(var(i)%d(1:nrec)))
 enddo
 if (any(var(1:nvar)%empty)) then
-	write (rads_log_unit,551,advance='no') 'No'
+	write (rads_log_unit,551,advance='no') 'Empty:'
 	do i = 1,nvar
 		if (var(i)%empty) write (rads_log_unit,551,advance='no') trim(var(i)%v%name)
 	enddo
 	write (rads_log_unit,551,advance='no') '... '
 endif
 551 format (1x,a)
+
+! Do the same for records that are all zero
+do i = 1,nvar
+	var(i)%empty = all(var(i)%d(1:nrec) == 0d0)
+enddo
+if (any(var(1:nvar)%empty)) then
+	write (rads_log_unit,551,advance='no') 'All zero:'
+	do i = 1,nvar
+		if (var(i)%empty) write (rads_log_unit,551,advance='no') trim(var(i)%v%name)
+	enddo
+	write (rads_log_unit,551,advance='no') '... '
+endif
+
 
 ! Open output file
 call rads_create_pass (S, P, nrec)
@@ -111,17 +159,18 @@ end subroutine put_rads
 ! nc2f: Load flag field, then set corresponding bit in RADS
 ! varnm : source variable name
 ! bit   : RADS bit to be set when value == 1
-! lim   : set bit when value >= lim (optional)
-! val   : set bit when value == val (optional, default = 1)
+! eq    : set bit when value == val (optional, default = 1)
 ! neq   : set bit when value /= val (optional)
-! mask  : set bit when iand(value,mask) /= 0
+! ge    : set bit when value >= val (optional)
+! le    : set bit when value <= val (optional)
+! mask  : set bit when iand(value,mask) /= 0 (optional)
 
-subroutine nc2f (varnm, bit, lim, val, neq, mask)
+subroutine nc2f (varnm, bit, eq, neq, ge, le, mask)
 use rads_netcdf
 use netcdf
 character(len=*), intent(in) :: varnm
 integer(fourbyteint), intent(in) :: bit
-integer(fourbyteint), optional, intent(in) :: lim, val, neq, mask
+integer(fourbyteint), optional, intent(in) :: eq, neq, ge, le, mask
 integer(twobyteint) :: flag(mrec), flag2d(1:1,1:nrec)
 integer(fourbyteint) :: i, ival, ndims, varid
 
@@ -133,9 +182,13 @@ if (ndims == 2) then	! Reduce 2D flags to 1D array
 else
 	call nfs(nf90_get_var(ncid,varid,flag(1:nrec)))
 endif
-if (present(lim)) then	! Set flag when value >= lim
+if (present(ge)) then	! Set flag when value >= ge
 	do i = 1,nrec
-		if (flag(i) >= lim) flags(i) = ibset(flags(i),bit)
+		if (flag(i) >= ge) flags(i) = ibset(flags(i),bit)
+	enddo
+else if (present(le)) then	! Set flag when value <= le
+	do i = 1,nrec
+		if (flag(i) <= le) flags(i) = ibset(flags(i),bit)
 	enddo
 else if (present(neq)) then	! Set flag when value /= neq
 	do i = 1,nrec
@@ -145,9 +198,9 @@ else if (present(mask)) then	! Set flag when value and mask have common set bits
 	do i = 1,nrec
 		if (iand(flag(i),mask) /= 0) flags(i) = ibset(flags(i),bit)
 	enddo
-else	! Set flag when value == 1, or when value == val (when given)
+else	! Set flag when value == 1, or when value == eq (when given)
 	ival = 1
-	if (present(val)) ival = val
+	if (present(eq)) ival = eq
 	do i = 1,nrec
 		if (flag(i) == ival) flags(i) = ibset(flags(i),bit)
 	enddo

@@ -1,5 +1,5 @@
 !-----------------------------------------------------------------------
-! Copyright (c) 2011-2016  Remko Scharroo
+! Copyright (c) 2011-2019  Remko Scharroo
 ! See LICENSE.TXT file for copying and redistribution conditions.
 !
 ! This program is free software: you can redistribute it and/or modify
@@ -17,13 +17,11 @@
 !+
 program rads2adr
 !
-! This program converts the RADS netCDF altimeter data to the old
+! This program converts the RADS NetCDF altimeter data to the old
 ! DEOS formats aADR, xADR and XGF, depending on whether the program
 ! is called as rads2adr, rads2xadr or rads2xgf.
 ! At the same time it applies the standard selection criteria
 ! and allows some further modifications and selections.
-!
-! usage: rads2adr|rads2xadr|rads2xgf sat=<sat> [RADS_options] [options]
 !-----------------------------------------------------------------------
 use rads
 use rads_netcdf

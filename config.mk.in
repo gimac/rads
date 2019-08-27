@@ -1,7 +1,7 @@
 #-----------------------------------------------------------------------
 # @configure_input@
 #
-# Copyright (c) 2011-2016  Remko Scharroo
+# Copyright (c) 2011-2019  Remko Scharroo
 # See LICENSE.TXT file for copying and redistribution conditions.
 #
 # This program is free software: you can redistribute it and/or modify
@@ -60,14 +60,18 @@ NETCDF_INC = @NETCDF_INC@
 NETCDF_LIB = @NETCDF_LIB@
 
 #-----------------------------------------------------------------------
+# Fortran compiler settings
+#-----------------------------------------------------------------------
+FC = @FC@
+FFLAGS = @FCFLAGS@ $(INCLUDES)
+MOD_FLAG = @MOD_FLAG@
+DEVEL_FLAGS = @DEVEL_FLAGS@
+
+#-----------------------------------------------------------------------
 # Additional tools
 #-----------------------------------------------------------------------
 LN_S = @LN_S@ -f
 RANLIB = @RANLIB@
-FC = @FC@
-# Here we use -I../src/include instead of -Iinclude to avoid warnings
-# when using FFLAGS in the devel directory
-FFLAGS = @FCFLAGS@@DEVEL_FLAGS@ -I../src/include @MOD_FLAG@../src $(NETCDF_INC)
 
 #-----------------------------------------------------------------------
 # Special rules

@@ -1,5 +1,5 @@
 !-----------------------------------------------------------------------
-! Copyright (c) 2011-2016  Remko Scharroo
+! Copyright (c) 2011-2019  Remko Scharroo
 ! See LICENSE.TXT file for copying and redistribution conditions.
 !
 ! This program is free software: you can redistribute it and/or modify
@@ -14,6 +14,8 @@
 !-----------------------------------------------------------------------
 
 module rads_devel
+
+integer, parameter :: rads_nrt = 0, rads_stc = 1, rads_ntc = 2
 
 contains
 
@@ -48,7 +50,7 @@ character(len=1), intent(out) :: phasenm
 !  erspass : .TRUE. if the pass has changed
 !-----------------------------------------------------------------------
 logical :: new
-integer(fourbyteint) :: unit,freeunit,npass=0,pnt,olders=0,ios
+integer(fourbyteint) :: unit,npass=0,pnt,olders=0,ios
 integer(fourbyteint), parameter :: mpass=170000, mjd90=1826 ! Days from 1985 to 1990
 real(eightbytereal) :: mjd
 type :: passtable
@@ -69,7 +71,7 @@ if (ers == olders) then
 else
 	call parseenv ('${RADSROOT}/ext/reaper/', line)
 	write (line,610) trim(line), ers
-	unit = freeunit()
+	unit = getlun()
 	npass = 0
 	open (unit, file=line, status='old')
 	read (unit, *, iostat=ios) ! Skip header

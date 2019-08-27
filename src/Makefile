@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------
-# Copyright (c) 2011-2016  Remko Scharroo
+# Copyright (c) 2011-2019  Remko Scharroo
 # See LICENSE.TXT file for copying and redistribution conditions.
 #
 # This program is free software: you can redistribute it and/or modify
@@ -16,7 +16,7 @@
 include ../config.mk
 
 # Include file
-INCLUDES= config.f90 rads_version.f90
+CONFIG  = config.f90
 
 # Objects
 OBJS1   = rads_time.o rads_misc.o rads_grid.o rads_geo.o rads_math.o rads_netcdf.o xmlparse.o
@@ -26,18 +26,22 @@ OBJS    = $(OBJS1) rads.o rads3.o
 MODS1   = $(OBJS1:.o=.mod)
 MODS    = $(OBJS:.o=.mod)
 
+# Includes
+INCLUDES= $(DEVEL_FLAGS) -Iinclude $(MOD_FLAG). $(NETCDF_INC)
+
 # RADS library and linked libraries
 LIB     = librads.a
 LDLIBS  = $(NETCDF_LIB)
 
 # Programs created by objects
 PROGS   = rads2asc rads2adr rads2nc rads2grd radsstat radscolin radsxogen radsxoconv \
-	radsxolist rads_test radsreconfig rads_sample rads3test radsvar
+	radsxolist rads_test radsreconfig rads_sample rads3test radsvar \
+	radspassesindex
 
 # Programs created by linking to other programs
 PROGS_L1= rads2xadr rads2xgf
 PROGS_L2= radsxostat
-PROGS_L4= rads2asc4 radscolin4 radsstat4 rads2grd4
+PROGS_L4= rads2asc4 radscolin4 radsstat4 rads2grd4 radspassesindex4
 
 # Shell scripts
 SCRIPTS = rads-config
@@ -64,7 +68,7 @@ install:	all
 
 rads_math.o:	rads_misc.mod rads_time.mod
 rads_netcdf.o:	rads_misc.mod rads_netcdf_get_var.f90 include/nf90_message.f90 ../devel/nf90_message.f90
-rads.o:			$(MODS1) $(INCLUDES) include/rads_tpj.f90 ../devel/rads_tpj.f90
+rads.o:			$(MODS1) $(CONFIG) include/rads_tpj.f90 ../devel/rads_tpj.f90
 rads3.o:		rads.mod
 $(PROGS):		$(LIB)
 radsxogen:		spline.o
@@ -76,14 +80,11 @@ radsxogen:		spline.o
 config.f90:	../config.mk
 	printf "character(len=rads_naml), parameter :: radsdataroot = '%s'\n" $(datadir) > $@
 	printf "logical, parameter :: little_endian = .%s.\n" $(LITTLE_ENDIAN) >> $@
+	printf "character(len=rads_varl), parameter :: rads_version_id = '%s'\n" $(PACKAGE_VERSION) >> $@
 
 rads-config:	rads-config.in
 	@echo "Error: Need to run configure in main directory first"
 	@exit 1
-
-rads_version.f90:	$(GIT_INDEX)
-	printf "character(len=rads_varl), parameter :: rads_version_id = '%s'\n" \
-	`if test -f ../.git/index; then git describe --tags; else echo "$(PACKAGE_VERSION)"; fi` > $@
 
 #-----------------------------------------------------------------------
 # How to create the library
@@ -97,7 +98,7 @@ $(LIB):	$(OBJS) $(DEVEL_OBJS)
 # Test programs
 #-----------------------------------------------------------------------
 
-TEST=rads_test -vvv -Se1/a --ymd=19910924,19910925 -R-90/120/-50/30 -Vtime,lat,lon,sla,12_,tide_ocean_,flags_,pass,drange
+TEST=rads_test -vvv -Se1/a --ymd=19910924,19910925 -R-90/120/-50/30 -Vtime,lat,lon,sla,12_,tide_ocean_,flags_,pass,drange | egrep -v "Created|CPU"
 test:	rads_test
 	$(TEST) | diff - rads_test.out
 rads_test.out:	rads_test
@@ -123,4 +124,4 @@ $(PROGS_L4):	%4:	%
 clean:
 	$(RM) $(LIB) $(PROGS) *.o *.mod
 spotless:	clean
-	$(RM) $(INCLUDES)
+	$(RM) $(CONFIG)

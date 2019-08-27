@@ -1,5 +1,5 @@
 !-----------------------------------------------------------------------
-! Copyright (c) 2011-2016  Remko Scharroo
+! Copyright (c) 2011-2019  Remko Scharroo
 ! See LICENSE.TXT file for copying and redistribution conditions.
 !
 ! This program is free software: you can redistribute it and/or modify
@@ -19,8 +19,6 @@ program radsvar
 !
 ! This program lists all the variables in RADS for a given satellite
 ! and mission. To make sure that only the available
-!
-! usage: radsvar [RADS_options] [options]
 !-----------------------------------------------------------------------
 use typesizes
 use rads
@@ -31,7 +29,7 @@ use netcdf
 
 type(rads_sat) :: S
 type(rads_pass) :: P
-integer(fourbyteint) :: cycle, pass, i, ncid, ios, intervals = 0
+integer(fourbyteint) :: cycle, pass, i, l, ncid, ios, intervals = 0
 type(rads_var), pointer :: var
 logical :: show_x = .false., round = .false.
 real(eightbytereal) :: factor = 1d0
@@ -48,7 +46,12 @@ nullify (var)
 do i = 1,rads_nopt
 	select case (rads_opt(i)%opt)
 	case ('V', 'var', 'sel')
-		var => rads_varptr(S, rads_opt(i)%arg)
+		l = len_trim(rads_opt(i)%arg)
+		if (rads_opt(i)%arg(l:l) == '_') then
+			var => rads_varptr(S, rads_opt(i)%arg(:l-1))
+		else
+			var => rads_varptr(S, rads_opt(i)%arg)
+		endif
 	case ('d')
 		read (rads_opt(i)%arg, *, iostat=ios) factor
 	case ('i')
@@ -234,8 +237,8 @@ if (round) call round_up (bin)	! Round if requested
 if (info%nctype /= nf90_real .and. info%nctype /= nf90_double .and. bin <= info%scale_factor) then
 	bin = info%scale_factor
 endif
-rng(1) = (nint(rng(1)/bin)-0.5d0)*bin
-rng(2) = (nint(rng(2)/bin)+0.5d0)*bin
+rng(1) = (nint(rng(1)/bin)-0.50d0)*bin
+rng(2) = (nint(rng(2)/bin)+0.50d0)*bin
 end subroutine adjust_range
 
 subroutine list (type, var)

@@ -1,9 +1,9 @@
 # rads
 
-The Radar Altimeter Database System (RADS) was developed by the Delft Institute for Earth-Oriented Space Research and the NOAA Laboratory for Satellite Altimetry. Apart from actual altimeter data, RADS provides here a suite of applications and subroutines that simplify the reading, editing and handling of data from various radar altimeters. Although the actual content and layout of the underlying data products do not have to be identical for all altimeters, the user interface is. Also, the data base is easily expandable with additional data and/or additional corrections without impact to the user interface, or to the software in general. In fact, only in very few cases the software will need to be adjusted and recompiled, in even fewer cases adjustments to the actual tools will be required.
+The Radar Altimeter Database System (RADS) was developed by the Delft Institute for Earth-Oriented Space Research, the NOAA Laboratory for Satellite Altimetry, and EUMETSAT. Apart from actual altimeter data, RADS provides here a suite of applications and subroutines that simplify the reading, editing and handling of data from various radar altimeters. Although the actual content and layout of the underlying data products do not have to be identical for all altimeters, the user interface is. Also, the data base is easily expandable with additional data and/or additional corrections without impact to the user interface, or to the software in general. In fact, only in very few cases the software will need to be adjusted and recompiled, in even fewer cases adjustments to the actual tools will be required.
 
 ## Development
-The RADS database and code has gone through various generations. NetCDF datasets were introduced in version 3, while the software more or less stayed the same as in version 2. This new version is a complete rewrite of the code, making it much easier to configure, handle, and expand, and for the first time taking all the advantages of the underlying netCDF data and the linear algebra provided by Fortran 90.
+The RADS database and code has gone through various generations. NetCDF datasets were introduced in version 3, while the software more or less stayed the same as in version 2. This new version is a complete rewrite of the code, making it much easier to configure, handle, and expand, and for the first time taking all the advantages of the underlying NetCDF data and the linear algebra provided by Fortran 90.
 
 ## Documentation
 There are two manuals that cover the use of the RADS software and the contents of the RADS data base:
@@ -15,7 +15,7 @@ The only requirements to compile and run the code are:
 * A unix type environment (Linux, Mac OS X, etc.).
 * The make command.
 * A fortran compiler (preferrably gfortran, but others like f90, f95, xlf90, xlf95 and ifort are known to work as well)
-* The netCDF library (version 4 or later) with the Fortran 90 interface, as well as its dependencies.
+* The NetCDF library (version 4.3 or later) and together with the Fortran 90 interface and module file.
 * Optionally, the git program.
 * For downloading and synchronising the data base: the rsync program.
 
@@ -27,6 +27,107 @@ Please submit your bug reports or feature requests, and track existing ones, on 
 
 ## Version History
 Following is a history of releases on [GitHub](https://github.com/remkos/rads/releases), newest to oldest.
+This does not include explanations of changes to the code that generates the data base.
+
+### v4.3.6 (15 Aug 2019)
+* `rads.xml`: Updated `ref_frame_offset` for JA3 (raise by 1 mm)
+* `rads.xml`: Added `ref_frame_offset` for S3A/S3B PLRM
+* `rads.xml`: Updated JA2 parameters since coming back on-line on 22-May-2019
+* `rads.xml`: Provide and use GDR-F orbits for CryoSat-2 (alt_gdrf)
+* `rads.xml`: Specified various subphases for sa/b in order to get correct prediction of equator times and longitudes. This solved issue #152.
+* Added `conf/ntc_only.xml` and set latency to 2 (NTC) by default.
+* Bug fix: Simple modification of syntax for option parsing check to avoid segfault when compiled with default intel-fc/12.1.9.293.
+* New option introduced in `radsstat` that echoes to stdout fullpath to each pass file checked for data.
+* Using `-L|--limits` on an alias now sets limits of all aliased variables, instead of only the first one.
+* Documentation updates.
+* Bug fix: Update equator prediction for longitude (not NaN) and using different phases.
+* Added command `radspassesindex` as in RADS3.
+
+### v4.3.5 (2 May 2019)
+* `rads.xml`: Added `ref_frame_offset_plrm`.
+* `rads.xml`: Properly use `wet_tropo_rad_plrm` instead of `wet_tropo_rad` for PLRM data.
+* `rads.xml`: Use `alt_gdrf` for S3A and S3B.
+* `rads.xml`: Added `latency` variable.
+* Properly deal with longitude rollovers in computing means or differences in `radscolin`.
+* Remove insistence that 0-dimension variable (constant) is a double.
+* Bug fix: invalid values in RPN data notation may not have always worked correctly.
+* Restrict the name of the time dimension to the first word in `S%time%info%dataname`.
+
+### v4.3.4 (2 Apr 2019)
+* Bug fix in `rads_def_var`.
+* Small documentation update.
+* Allow multiple mission phases with the same name (needed for Sentinel-3B and Jason-2 after geodetic phase rewind).
+* Updated Sentinel-3B mission phases.
+* Implemented internal tides.
+* Removed support for FES2012 tide model.
+* Bug fix in `rads_add_tide`.
+* Removed DTU MSS13 from standard models provided.
+* Added `topo_srtm15plus` to alias for `topo` ahread of removing `topo_srtm30plus`.
+
+### v4.3.3 (19 Nov 2018)
+* Added new optional argument `varid` to `rads_def_var` routine (fixed bug issue #139).
+
+### v4.3.2 (7 Nov 2018)
+* New mission definitions for Sentinel-3B.
+* Do not store output varid in `rads_varinfo` struct, but determine as needed (fixed issue #126 and #138).
+* Update data manual on Sentinel-3A and -3B (fixed issue #131).
+* Specify separate `flag_meanings` for each mission (fixed issue #132).
+
+### v4.3.1 (4 Sep 2018)
+* New mission phase definition for Jason-2 Phase D.
+* New mission definitions for Sentinel-3B.
+* Added optional argument "deflate" to `nf90_def_axis`.
+* Replaced iqsort by more stable version of quicksort (fixed issue #127).
+* No more duplicate tracks in radsxogen when generating single- and dual-satellite xovers (fixed issue #129).
+* Documented the --reject-on-nan=all option in radscolin4.
+
+### v4.3.0 (30 May 2018)
+* Added support for processing of Sentinel-3B data.
+* Added routine `rads_set_phase`.
+* Added \<end_time\> specifications on last mission phase of terminated missions.
+* Added license file.
+* Added `geoid_xgm2016` specification in support of issue #119.
+* Added `topo_strm15plus` specification in support of issue #120.
+* Fixed issue #121.
+
+### v4.2.11 (16 Mar 2018)
+* Updated information on Sentinel-3B orbit and mission phases.
+* Provide better "histogram limits" from radsvar.
+* Changed format for all time fields in 1985 seconds, so they do not overrun the maximum number of characters.
+* Changed the reference frame offset for Sentinel-3A from 27 mm to 2 mm.
+* Polishing of manuals
+
+### v4.2.10 (1 Jan 2018)
+* Copyright updated to 2018
+* Increased number of cycles for CryoSat-2
+
+### v4.2.9 (30 Nov 2017)
+* Replaced freeunit() by getlun()
+* Added standard_name and axis attributes when writing lat/lon grids
+* Added valid_min, valid_max, grid_step attributes to output grids. Removed actual_range.
+* Many changes to the developer code to produce the [Nov 2017 updates](https://github.com/remkos/rads/milestone/6?closed=1); see there for more information.
+* Changes to configuration file (rads.xml) in accordance with the [Nov 2017 updates](https://github.com/remkos/rads/milestone/6?closed=1).
+
+### v4.2.8 (12 Sep 2017)
+* Fixed information on Jason-2 Phase C in `rads.xml`
+
+### v4.2.7 (7 Sep 2017)
+* Updates for Jason-2 Phase C ("tango")
+* Added definition of qual_alt_rain_ice and qual_rad_rain_ice to Sentinel-3.
+
+### v4.2.6 (27 Aug 2017)
+* New features in radscolin: --diff-no-coord and --diff1.
+* Numerous updates for the generation of RADS data for Sentinel-3, Jason-2, and Jason-3.
+* New variables for modern mean sea surfaces and tide models.
+* Updates to user and data manuals.
+
+### v4.2.5 (6 Oct 2016)
+* Updates to manuals (e.g., issue #99).
+* Numerous updates for the generation of RADS data for Sentinel-3 and Jason-3 (developer tools only).
+* Bug fix: nesting of \<if\> tags could go wrong when reading XML files.
+* Installation: use nc-config if nf-config is not supplied.
+* Adjustments for SARAL Drift Mission.
+* Preparation for Jason-2 Interleaved Mission.
 
 ### v4.2.4 (6 June 2016)
 * Bug fix (issue #97), which prevented radsxogen from running properly. This error was introduced in the master on 1 May 2016 (v4.2.2).
@@ -41,8 +142,8 @@ Following is a history of releases on [GitHub](https://github.com/remkos/rads/re
 * Major additions to the user manual.
 * Changes and additions to configuration files for Jason-3 and Sentinel-3A.
 * All help output to be sent to standard output (not standard error).
-* rads2grd: --fmt replaced by --line-format, variable name in netCDF now always ${var}_mean and ${var}_stddev, even when only one variable is used.
-* Updated global attributes to be written in new netCDF files.
+* rads2grd: --fmt replaced by --line-format, variable name in NetCDF now always ${var}_mean and ${var}_stddev, even when only one variable is used.
+* Updated global attributes to be written in new NetCDF files.
 * --quality_flag replaced by --quality-flag (with backward compatibility).
 * Made adaptations for Jason-1 GDR-E (to be released later).
 * Change format of time field to f17.6 in advance of 2016-09-09 when extra digit will be added.

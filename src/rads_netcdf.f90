@@ -1,5 +1,5 @@
 !****-------------------------------------------------------------------
-! Copyright (c) 2011-2016  Remko Scharroo
+! Copyright (c) 2011-2019  Remko Scharroo
 ! See LICENSE.TXT file for copying and redistribution conditions.
 !
 ! This program is free software: you can redistribute it and/or modify
@@ -15,12 +15,12 @@
 
 !****f* module/rads_netcdf
 ! SUMMARY
-! Module with useful interfaces to netCDF
+! Module with useful interfaces to NetCDF
 !
 ! PURPOSE
 ! This module provides a selections of routines that make it easier
-! to work with netCDF files. It accomplishes commonly used tasks during
-! the creating or reading of netCDF grids and other netCDF files
+! to work with NetCDF files. It accomplishes commonly used tasks during
+! the creating or reading of NetCDF grids and other NetCDF files
 !
 ! To access the interface, add 'use rads_netcdf' to your Fortran 90 program
 !****-------------------------------------------------------------------
@@ -31,13 +31,13 @@ real(eightbytereal), parameter, private :: nan = transfer ((/not(0_fourbyteint),
 
 !****f* rads_netcdf/get_var
 ! SUMMARY
-! Load variable from netCDF file into memory
+! Load variable from NetCDF file into memory
 !
 ! SYNTAX
 ! subroutine get_var (ncid, varnm, array)
 ! integer(fourbyteint), intent(in) :: ncid
 ! character(len=*), intent(in) :: varnm
-! real(eightbytereal), intent(out) :: array(:) <or> array(:,:)
+! real(eightbytereal), intent(out) :: array(:) <or> array(:,:) <or> array(:,:,:)
 !
 ! PURPOSE
 ! This routine looks for a variable named <varnm> in the file associated with
@@ -48,9 +48,22 @@ real(eightbytereal), parameter, private :: nan = transfer ((/not(0_fourbyteint),
 ! One can also use RPN notation to combine a number of variables and/or
 ! numerical constants directly.
 ! For example: varnm='alt range SUB'.
-! Note that only the RPN commands ADD, SUB, MUL, DIV and NEG are available
-! and that only 2 buffers can be used, so the computation has to remain
-! relatively simple.
+! Note that only the following RPN commands are available:
+! --------------------------------------------
+! Command | Example   | Result
+! --------------------------------------------
+! ADD     |  a b ADD  | a + b
+! SUB     |  a b SUB  | a - b
+! NEG     |  a NEG    | -a
+! MUL     |  a b MUL  | a * b
+! DIV     |  a b DIV  | a / b
+! AND     |  a b AND  | if (isnan(a)) b else a
+! HYPOT   |  a b HYPOT| sqrt(a*a+b*b)
+! R2      |  a b R2   | a*a + b*b
+! ISNAN   |  a ISNAN  | if (isnan(a)) 1 else 0
+! --------------------------------------------
+! Only 2 buffers can be used, so the computation has to remain relatively
+! simple.
 ! This can be done for 1D or 2D variables, but not for 3D variables.
 !
 ! ARGUMENTS
@@ -71,7 +84,7 @@ include "nf90_message.f90"
 
 !****f* rads_netcdf/nf90_inq_varid_warn
 ! SUMMARY
-! Get the netCDF ID for a variable, with warning
+! Get the NetCDF ID for a variable, with warning
 !
 ! SYNOPSIS
 function nf90_inq_varid_warn (ncid, varnm, varid)
@@ -82,7 +95,7 @@ integer, intent(out) :: varid
 integer :: nf90_inq_varid_warn
 !
 ! PURPOSE
-! This function is an extension of the standard netCDF-Fortran routine
+! This function is an extension of the standard NetCDF-Fortran routine
 ! nf90_inq_varid. It works the same, except that when nf90_inq_varid
 ! fails, nf90_inq_varid_warn will return a warning message, to stdout
 ! with the variable name and the file name.
@@ -101,78 +114,88 @@ end function nf90_inq_varid_warn
 ! Define dimension as a coordinate axis
 !
 ! SYNOPSIS
-subroutine nf90_def_axis (ncid, varnm, longname, units, nx, x0, x1, dimid, varid, xtype)
+subroutine nf90_def_axis (ncid, varnm, long_name, units, nx, x0, x1, dimid, varid, axis, standard_name, deflate)
 use netcdf
-character(len=*), intent(in) :: varnm,longname,units
-integer, intent(in) :: ncid,nx
+character(len=*), intent(in) :: varnm, long_name, units
+integer, intent(in) :: ncid, nx
 real(eightbytereal), intent(in) :: x0,x1
-integer, intent(out) :: dimid,varid
-integer, intent(in), optional :: xtype
+integer, intent(out) :: dimid, varid
+character(len=*), intent(in), optional :: axis, standard_name
+integer, intent(in), optional :: deflate
 !
-! This routine sets up a dimension and its associated variable in a netCDF
+! This routine sets up a dimension and its associated variable in a NetCDF
 ! file. Supply variable name, long name, units, number of elements, and range.
-! The call needs to happen during the define stage of creating a netCDF file.
+! The call needs to happen during the define stage of creating a NetCDF file.
 !
 ! To fill the coordinate array, use nf90_put_axis after closing the define
 ! stage.
 !
-! The string <longname> can either contain the 'long_name' attribute or
+! To force pixel orientation, first add the global attribute node_offset = 1.
+! In case of pixel orientation the range <x0> to <x1> includes the outer edges
+! of the cells.
+!
+! The string <long_name> can either contain the 'long_name' attribute or
 ! both the 'long_name' and 'units' attribute. In the latter case one can use,
-! for example, longname = 'height [m]' and units = '[]', which will make this
+! for example, long_name = 'height [m]' and units = '[]', which will make this
 ! routine extract the 'm' as unit.
 !
-! When creating an 'unlimited' dimension, specify nx as nf90_unlimited (or 0).
+! The optional strings <axis> and <standard_name> can be added to add these
+! additional attributes to the coordinate variable.
+!
+! The optional value <deflate> can specify the deflate level, if required.
+!
+! When creating an 'unlimited' dimension, specify <nx> as nf90_unlimited (or 0).
 !
 ! ARGUMENTS
 ! ncid     : NetCDF file ID
 ! varnm    : (short) variable name
-! longname : Longer description of coordinate variable
+! long_name: Longer description of coordinate variable
 ! units    : Units of the coordinate variable
 ! nx       : Number of elements in coordinate array (can be nf90_unlimited)
-! x0, x1   : Start and end of array
+! x0, x1   : Start and end of axis
 ! dimid    : NetCDF dimension ID
 ! varid    : NetCDF variable ID
-! xtype    : Type of variable (optional, default = nf90_double)
+! axis     : (Optional) string for axis attribute
+! standard_name : (Optional) string for standard_name attribute
+! deflate  : (Optional) deflate level
 !****-------------------------------------------------------------------
-integer(fourbyteint) :: i, j, node_offset = 0
-real(eightbytereal) :: dx, xrange(2)
+integer(fourbyteint) :: i, j, node_offset
+real(eightbytereal) :: dx = 0d0
 
 ! Create dimension and variable for this axis
 call nfs(nf90_def_dim(ncid,varnm,abs(nx),dimid))
-if (present(xtype)) then
-	call nfs(nf90_def_var(ncid,varnm,xtype,dimid,varid))
-else
-	call nfs(nf90_def_var(ncid,varnm,nf90_double,dimid,varid))
-endif
+call nfs(nf90_def_var(ncid,varnm,nf90_double,dimid,varid))
 
 ! Add attributes
 if (units == '[]' .or. units == '()') then
-	i = index(longname,units(1:1))
-	j = index(longname,units(2:2))
+	i = index(long_name,units(1:1))
+	j = index(long_name,units(2:2))
 	if (i > 0) then
-		call nfs(nf90_put_att(ncid,varid,'long_name',longname(:i-2)))
-	else if (longname /= ' ') then
-		call nfs(nf90_put_att(ncid,varid,'long_name',trim(longname)))
+		call nfs(nf90_put_att(ncid,varid,'long_name',long_name(:i-2)))
+	else if (long_name /= ' ') then
+		call nfs(nf90_put_att(ncid,varid,'long_name',trim(long_name)))
 	endif
-	if (j > i+1) call nfs(nf90_put_att(ncid,varid,'units',longname(i+1:j-1)))
+	if (j > i+1) call nfs(nf90_put_att(ncid,varid,'units',long_name(i+1:j-1)))
 else
-	if (longname /= ' ') call nfs(nf90_put_att(ncid,varid,'long_name',trim(longname)))
-	if (units /= ' ') call nfs(nf90_put_att(ncid,varid,'units',trim(units)))
+	if (long_name /= '') call nfs(nf90_put_att(ncid,varid,'long_name',trim(long_name)))
+	if (units /= '') call nfs(nf90_put_att(ncid,varid,'units',trim(units)))
 endif
+if (present(standard_name) .and. standard_name /= '') call nfs(nf90_put_att(ncid,varid, &
+	'standard_name', trim(standard_name)))
+if (present(axis) .and. axis /= '') call nfs(nf90_put_att(ncid,varid,'axis',trim(axis)))
 
-! Check if node_offset was set
-i = nf90_get_att(ncid,nf90_global,'node_offset',node_offset)
+! Get global attribute 'node_offset' to see if we are pixel oriented
+if (nf90_get_att(ncid,nf90_global,'node_offset',node_offset) /= nf90_noerr) node_offset = 0
 
-! If so, extend range by half a bin in both directions
-if (node_offset == 0) then
-	xrange(1) = x0; xrange(2) = x1
-else
-	dx = (x1-x0)/(nx-1)/2d0
-	xrange(1) = x0 - dx; xrange(2) = x1 + dx
-endif
+! Add 'valid_min', 'valid_max' and 'grid_step' attributes for our CLS colleagues
+dx = (x1-x0) / (nx-1)
+call nfs(nf90_put_att(ncid,varid,'valid_min',x0))
+call nfs(nf90_put_att(ncid,varid,'valid_max',x1))
+call nfs(nf90_put_att(ncid,varid,'grid_step',dx))
 
-! Add "actual_range" attribute
-call nfs(nf90_put_att(ncid,varid,'actual_range',xrange))
+! Set deflate level
+if (present(deflate)) call nfs(nf90_def_var_deflate(ncid,varid,1,deflate,deflate))
+
 end subroutine nf90_def_axis
 
 !****f* rads_netcdf/nf90_put_axis
@@ -197,14 +220,14 @@ integer, intent(in), optional :: len
 ! len     : Length of the dimension (optional, only needed for unlimited
 !           dimension)
 !****-------------------------------------------------------------------
-integer :: dimid(1), nx, node_offset=0, i
+integer :: dimid(1), nx, i
 real(eightbytereal), allocatable :: x(:)
-real(eightbytereal) :: xrange(2)
+real(eightbytereal) :: x0, x1
 call nfs(nf90_inquire_variable(ncid,varid,dimids=dimid))
 call nfs(nf90_inquire_dimension(ncid,dimid(1),len=nx))
 if (nx == nf90_unlimited) nx = len
-call nfs(nf90_get_att(ncid,varid,'actual_range',xrange))
-i = nf90_get_att(ncid,nf90_global,'node_offset',node_offset)
+call nfs(nf90_get_att(ncid,varid,'valid_min',x0))
+call nfs(nf90_get_att(ncid,varid,'valid_max',x1))
 allocate(x(nx))
 !
 ! This kind of prolonged way of filling x() is to make sure that:
@@ -213,24 +236,18 @@ allocate(x(nx))
 ! (3) Intermediate values are as close as possible to intended numbers
 ! The alternative, to add multiples of dx is prone to increasing errors
 !
-if (node_offset == 0) then
-	x(1) = xrange(1)
-	do i = 2,nx-1
-		x(i) = (xrange(1)*(nx-i)+xrange(2)*(i-1))/(nx-1)
-	enddo
-	x(nx) = xrange(2)
-else
-	do i = 1,nx
-		x(i) = (xrange(1)*(nx-i+0.5d0)+xrange(2)*(i-0.5d0))/(nx)
-	enddo
-endif
+x(1) = x0
+do i = 2,nx-1
+	x(i) = (x0*(nx-i)+x1*(i-1))/(nx-1)
+enddo
+x(nx) = x1
 call nfs(nf90_put_var(ncid,varid,x))
 deallocate(x)
 end subroutine nf90_put_axis
 
 !****f* rads_netcdf/nff
 ! SUMMARY
-! Return .false. upon netCDF error
+! Return .false. upon NetCDF error
 !
 ! SYNOPSIS
 logical function nff(ios)
@@ -238,11 +255,11 @@ use netcdf
 integer, intent(in) :: ios
 !
 ! PURPOSE
-! This is a wrapper for netCDF functions. It catches the status return code of the
-! netCDF routine and checks if an error occurred. The function returns:
+! This is a wrapper for NetCDF functions. It catches the status return code of the
+! NetCDF routine and checks if an error occurred. The function returns:
 !
 ! ARGUMENT
-! ios  : netCDF I/O code
+! ios  : NetCDF I/O code
 !
 ! RETURN VALUE
 ! nff  : Error (.false.) or no error (.true.)
@@ -255,7 +272,7 @@ end function nff
 
 !****f* rads_netcdf/nft
 ! SUMMARY
-! Return .true. upon netCDF error
+! Return .true. upon NetCDF error
 !
 ! SYNOPSIS
 logical function nft(ios)
@@ -263,11 +280,11 @@ use netcdf
 integer, intent(in) :: ios
 !
 ! PURPOSE
-! This is a wrapper for netCDF functions. It catches the status return code of the
-! netCDF routine and checks if an error occurred. The function returns:
+! This is a wrapper for NetCDF functions. It catches the status return code of the
+! NetCDF routine and checks if an error occurred. The function returns:
 !
 ! ARGUMENT
-! ios  : netCDF I/O code
+! ios  : NetCDF I/O code
 !
 ! RETURN VALUE
 ! nft  : Error (.true.) or no error (.false.)
@@ -280,7 +297,7 @@ end function nft
 
 !****f* rads_netcdf/nfs
 ! SUMMARY
-! Stop execution upon netCDF error
+! Stop execution upon NetCDF error
 !
 ! SYNOPSIS
 subroutine nfs(ios)
@@ -288,12 +305,12 @@ use netcdf
 integer, intent(in) :: ios
 !
 ! PURPOSE
-! This is a wrapper for netCDF functions. It catches the status return code of the
-! netCDF routine and checks if an error occurred. Upon error, an error message
+! This is a wrapper for NetCDF functions. It catches the status return code of the
+! NetCDF routine and checks if an error occurred. Upon error, an error message
 ! is printed to standard error and execution stops.
 !
 ! ARGUMENT
-! ios  : netCDF I/O code
+! ios  : NetCDF I/O code
 !
 ! EXAMPLE
 ! call nfs (nf90_open ('file.nc', nf90_write, ncid))

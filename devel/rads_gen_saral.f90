@@ -1,5 +1,5 @@
 !-----------------------------------------------------------------------
-! Copyright (c) 2011-2016  Remko Scharroo
+! Copyright (c) 2011-2019  Remko Scharroo
 ! See LICENSE.TXT file for copying and redistribution conditions.
 !
 ! This program is free software: you can redistribute it and/or modify
@@ -24,7 +24,7 @@ program rads_gen_saral
 !
 ! syntax: rads_gen_saral [options] < list_of_SARAL_file_names
 !
-! This program handles SARAL OGDR, IGDR and GDR files in netCDF format.
+! This program handles SARAL OGDR, IGDR and GDR files in NetCDF format.
 !-----------------------------------------------------------------------
 !
 ! Variables array fields to be filled are:
@@ -85,7 +85,7 @@ character(len=rads_cmdl) :: infile, arg
 
 integer(fourbyteint) :: cyclenr, passnr, varid, patch
 real(eightbytereal) :: equator_time
-logical :: ogdr
+integer :: latency = rads_nrt
 
 ! Data variables
 
@@ -136,7 +136,16 @@ do
 	endif
 
 	call nfs(nf90_get_att(ncid,nf90_global,'title',arg))
-	ogdr = (arg(:4) == 'OGDR')
+	if (arg(:4) == 'OGDR') then
+		latency = rads_nrt
+	else if (arg(:4) == 'IGDR') then
+		latency = rads_stc
+	else if (arg(:3) == 'GDR') then
+		latency = rads_ntc
+	else
+		call log_string ('Error: file skipped: unknown latency', .true.)
+		cycle
+	endif
 	call nfs(nf90_get_att(ncid,nf90_global,'cycle_number',cyclenr))
 	call nfs(nf90_get_att(ncid,nf90_global,'pass_number',passnr))
 	call nfs(nf90_get_att(ncid,nf90_global,'equator_time',arg))
@@ -149,6 +158,14 @@ do
 		call log_string ('Skipped', .true.)
 		cycle
 	endif
+
+! Update mission phase if required
+
+	call rads_set_phase (S, equator_time)
+
+! Phase B GDRs start with cycle 100, but have been renumbered to start with cycle 36
+
+	if (S%phase%name(1:1) == 'b') cyclenr = cyclenr - 64
 
 ! Store relevant info
 
@@ -187,18 +204,18 @@ do
 
 	flags = 0
 	call nc2f ('qual_alt_1hz_off_nadir_angle_wf',1)	! bit  1: Quality off-nadir pointing
-	call nc2f ('surface_type',2,val=2)				! bit  2: Continental ice
-	call nc2f ('surface_type',4,lim=2)				! bit  4: Water/land
-	call nc2f ('surface_type',5,lim=1)				! bit  5: Ocean/other
-	call nc2f ('rad_surf_type',6,lim=2)				! bit  6: Radiometer land flag
+	call nc2f ('surface_type',2,eq=2)				! bit  2: Continental ice
+	call nc2f ('surface_type',4,ge=2)				! bit  4: Water/land
+	call nc2f ('surface_type',5,ge=1)				! bit  5: Ocean/other
+	call nc2f ('rad_surf_type',6,ge=2)				! bit  6: Radiometer land flag
 	call nc2f ('ice_flag',7)						! bit  7: Ice flag
 	call nc2f ('qual_rad_1hz_tb_k',9)				! bit  9: Quality 23.8 GHz channel
 	call nc2f ('qual_rad_1hz_tb_ka',10)				! bit 10: Quality 37.0 GHz channel
 	call nc2f ('qual_alt_1hz_range',11)				! bit 11: Quality of range
 	call nc2f ('qual_alt_1hz_swh',12)				! bit 12: Quality of SWH
 	call nc2f ('qual_alt_1hz_sig0',13)				! bit 13: Quality of sigma0
-	if (ogdr) then
-		call nc2f ('orb_state_flag_diode',15,lim=2)	! bit 15: Quality of DIODE orbit
+	if (latency == rads_nrt) then
+		call nc2f ('orb_state_flag_diode',15,ge=2)	! bit 15: Quality of DIODE orbit
 	else
 		call nc2f ('orb_state_flag_rest',15,neq=3)	! bit 15: Quality of restituted orbit
 	endif
@@ -232,23 +249,29 @@ do
 	call cpy_var ('swh_rms', 'swh_rms_ka')
 	call cpy_var ('sig0', 'sig0_ka')
 	call cpy_var ('atmos_corr_sig0', 'dsig0_atmos_ka')
-	if (patch == 1) call cpy_var ('atmos_corr_sig0', 'dsig0_atmos_nn_ka')
+	call cpy_var ('atmos_corr_sig0', 'dsig0_atmos_nn_ka', patch == 1)
 	call cpy_var ('off_nadir_angle_wf', 'off_nadir_angle2_wf_ka')
 	call cpy_var ('tb_k', 'tb_238')
 	call cpy_var ('tb_ka', 'tb_370')
-	call cpy_var ('mean_sea_surface', 'mss_cnescls11')
+	if (S%phase%name == 'b') then
+		call cpy_var ('mean_sea_surface', 'mss_cnescls15')
+	else
+		call cpy_var ('mean_sea_surface', 'mss_cnescls11')
+	endif
 	call cpy_var ('geoid', 'geoid_egm96')
 	call cpy_var ('bathymetry', 'topo_dtm2000')
 	call cpy_var ('inv_bar_corr', 'inv_bar_static')
-	if (ogdr) then
+	if (latency == rads_nrt) then
 		call cpy_var ('inv_bar_corr', 'inv_bar_mog2d')
 	else
 		call cpy_var ('inv_bar_corr hf_fluctuations_corr ADD', 'inv_bar_mog2d')
 	endif
 	call cpy_var ('ocean_tide_sol1 load_tide_sol1 SUB', 'tide_ocean_got48')
-	call cpy_var ('ocean_tide_sol2 load_tide_sol2 SUB', 'tide_ocean_fes04')
+	call cpy_var ('ocean_tide_sol2 load_tide_sol2 SUB ocean_tide_non_equil ADD', 'tide_ocean_fes04')
 	call cpy_var ('load_tide_sol1', 'tide_load_got48')
 	call cpy_var ('load_tide_sol2', 'tide_load_fes04')
+	call cpy_var ('ocean_tide_equil', 'tide_equil')
+	call cpy_var ('ocean_tide_non_equil', 'tide_non_equil')
 	call cpy_var ('solid_earth_tide', 'tide_solid')
 	call cpy_var ('pole_tide', 'tide_pole')
 	call cpy_var ('wind_speed_model_u', 'wind_speed_ecmwf_u')
@@ -265,6 +288,8 @@ do
 	call new_var ('peakiness_ka', a)
 	a = flags
 	call new_var ('flags', a)
+	a = latency
+	call new_var ('latency', a)
 
 ! Dump the data
 

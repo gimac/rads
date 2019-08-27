@@ -1,5 +1,5 @@
 !-----------------------------------------------------------------------
-! Copyright (c) 2011-2016  Remko Scharroo
+! Copyright (c) 2011-2019  Remko Scharroo
 ! See LICENSE.TXT file for copying and redistribution conditions.
 !
 ! This program is free software: you can redistribute it and/or modify
@@ -32,6 +32,9 @@
 ! J2: The reference frame offset for the SLA from MLE4 measurements is
 !     given in the configuration. For MLE3 measurements 28.5 mm is added
 !     to the C00 term.
+! 3A: The reference frame offset is for the latest product baseline.
+!     For data before PB2.19 (SM-2 6.10) increase the reference frame offset
+!     by 23 mm. See notes of 2018-01-26.
 !
 ! usage: rads_add_refframe [data-selectors] [options]
 !-----------------------------------------------------------------------
@@ -53,6 +56,7 @@ integer(fourbyteint) :: cyc, pass
 real(eightbytereal) :: coef(5) = 0d0, a(5)
 logical :: constant
 type(rads_var), pointer :: var
+character(len=5) :: ext = ''
 
 ! Other variables
 
@@ -61,15 +65,24 @@ integer(fourbyteint) :: i, ios
 ! Initialise
 
 call synopsis ('--head')
-call rads_set_options (' coef:')
+call rads_set_options ('x: ext: coef:')
 call rads_init (S)
+
+! Check for -x or --ext options
+
+do i = 1,rads_nopt
+	select case (rads_opt(i)%opt)
+	case ('x', 'ext')
+		ext = '_' // rads_opt(i)%arg(:4)
+	end select
+enddo
 
 ! Get default coefficients from rads.xml file
 
-var => rads_varptr (S, 'ref_frame_offset')
+var => rads_varptr (S, 'ref_frame_offset'//ext)
 read (var%info%parameters, *, iostat=ios) coef
 
-! Check for options
+! Check for --coef option
 
 do i = 1,rads_nopt
 	select case (rads_opt(i)%opt)
@@ -80,7 +93,9 @@ do i = 1,rads_nopt
 	end select
 enddo
 
-coef = coef*1d-3	! Convert mm to m
+! Convert coefficients from mm to m
+
+coef = coef*1d-3
 constant = all(coef(2:5) == 0d0)
 
 ! Process all data files
@@ -110,6 +125,7 @@ call synopsis_devel ('')
 write (*,1310)
 1310  format (/ &
 'Additional [processing_options] are:'/ &
+'  -x, --ext EXT             Produce field ref_frame_offset_EXT (e.g. mle3 or plrm)' / &
 ' --coef C00,C10,C11,S11,C20 Set reference frame offset coefficients (mm)' / &
 '                            (default values come from rads.xml)')
 stop
@@ -154,13 +170,18 @@ endif
 
 if (S%sat == 'j1' .and. S%phase%name == 'c') cor = cor + 5d-3
 
+! If Sentinel-3 prior to SM-2 version 6.10, add 25 mm
+
+if (S%sat == '3a') then
+	i = index(P%original, 'IPF-SM-2')
+	if (i > 0 .and. P%original(i+9:i+13) < '06.10') cor = cor + 25d-3
+endif
+
 ! Store all data fields.
 
 call rads_put_history (S, P)
 call rads_def_var (S, P, var)
-if (S%sat == 'j2') call rads_def_var (S, P, 'ref_frame_offset_mle3')
 call rads_put_var (S, P, var, cor)
-if (S%sat == 'j2') call rads_put_var (S, P, 'ref_frame_offset_mle3', cor+28.5d-3)
 
 call log_records (n)
 end subroutine process_pass

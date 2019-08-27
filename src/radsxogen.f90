@@ -1,5 +1,5 @@
 !-----------------------------------------------------------------------
-! Copyright (c) 2011-2016  Remko Scharroo
+! Copyright (c) 2011-2019  Remko Scharroo
 ! See LICENSE.TXT file for copying and redistribution conditions.
 !
 ! This program is free software: you can redistribute it and/or modify
@@ -22,7 +22,7 @@ program radsxogen
 ! data (single satellite crossovers) or between different
 ! batches of altimeter data (dual satellite crossovers).
 !
-! The output is a netCDF file containing the crossover times
+! The output is a NetCDF file containing the crossover times
 ! and locations of the crossovers, with the information of
 ! the respective passes. With a consecutive run of radsxosel
 ! more information can be added to the crossover file.
@@ -65,7 +65,8 @@ type :: trk_
 endtype
 type(trk_) :: trk(mtrk)
 
-integer(fourbyteint), allocatable :: key(:), idx(:), trkid(:,:)
+type(quicksort_pair), allocatable :: pair(:)
+integer(fourbyteint), allocatable :: inv(:), trkid(:,:)
 
 ! Initialize RADS or issue help
 call synopsis
@@ -173,23 +174,20 @@ enddo
 ! Do further initialisations
 nr = nr_ (0, 0, 0, 0, 0, 0, 0, 0)
 
-! Open output netCDF file
+! Open output NetCDF file
 call nfs (nf90_create (filename, nf90_write, ncid))
 call nfs (nf90_def_dim (ncid, 'xover', nf90_unlimited, dimid(1)))
 call nfs (nf90_def_dim (ncid, 'leg', 2, dimid(2)))
 
-! To use general netCDF creation machinary, we trick the library a bit here
+! To use general NetCDF creation machinary, we trick the library a bit here
 P%fileinfo(1) = rads_file (ncid, filename)
 P%rw = .true.
 S(1)%time%info%ndims = 2
 
 ! Define lat and lon (1D) and time (2D)
-call rads_def_var (S(1), P, S(1)%lat)
-call rads_def_var (S(1), P, S(1)%lon)
-call rads_def_var (S(1), P, S(1)%time)
-varid(1) = S(1)%lat%info%varid
-varid(2) = S(1)%lon%info%varid
-varid(3) = S(1)%time%info%varid
+call rads_def_var (S(1), P, S(1)%lat, varid=varid(1))
+call rads_def_var (S(1), P, S(1)%lon, varid=varid(2))
+call rads_def_var (S(1), P, S(1)%time, varid=varid(3))
 
 ! Define selected variables
 do i = 1,nsel
@@ -202,8 +200,8 @@ call def_var (ncid, 'track', 'track number', '', nf90_int4, dimid(2:1:-1), varid
 call nfs (nf90_put_att (ncid, varid(4), 'comment', 'Internal track number relating to satid/cycle/pass below'))
 call nfs (nf90_put_att (ncid, nf90_global, 'Conventions', 'CF-1.5'))
 call nfs (nf90_put_att (ncid, nf90_global, 'title', 'RADS 4.0 crossover file'))
-call nfs (nf90_put_att (ncid, nf90_global, 'institution', 'Altimetrics / NOAA / TU Delft'))
-call nfs (nf90_put_att (ncid, nf90_global, 'references', 'RADS Data Manual, Issue 4.0'))
+call nfs (nf90_put_att (ncid, nf90_global, 'institution', 'EUMETSAT / NOAA / TU Delft'))
+call nfs (nf90_put_att (ncid, nf90_global, 'references', 'RADS Data Manual, Version ' // trim(rads_version_id)))
 call nfs (nf90_put_att (ncid, nf90_global, 'history', timestamp()//' UTC: '//trim(S(1)%command)))
 call nfs (nf90_put_att (ncid, nf90_global, 'legs', trim(legs)))
 call nfs (nf90_enddef (ncid))
@@ -216,8 +214,6 @@ do i = 1,nsat
 	enddo
 enddo
 
-! Print statistics
-write (*, 500) nr
 500 format (/ &
 'Number of crossings tested  :',i9/ &
 '- Shallow crossings         :',i9/ &
@@ -231,20 +227,39 @@ write (*, 500) nr
 call rads_stat (S)
 
 if (nr%trk == 0) then
+	write (*, 500)
 	call nfs (nf90_close (ncid))
 	stop
 endif
 
 ! Sort the track information in order satid/cycle/pass
-allocate (key(nr%trk), idx(nr%trk), trkid(2,nr%xout))
+allocate (pair(nr%trk), inv(nr%trk), trkid(2,nr%xout))
 forall (i = 1:nr%trk)
-	idx(i) = i
-	key(i) = trk(i)%satid * 10000000 + trk(i)%cycle * 10000 + trk(i)%pass
+	pair(i) = quicksort_pair (i, trk(i)%satid * 1d3 + trk(i)%cycle + trk(i)%pass * 1d-4)
 end forall
-call iqsort (idx, key)
-if (idx(1) == 0) call rads_exit ('stack size for iqsort is too small')
+call quicksort (pair)
 
-! Add the track info to the netCDF file
+! Different batches will create new track numbers, so there can be duplicates.
+! Here we remove the duplicates and "condense" the numbers, stored in pair%order.
+! inv is the inverse of pair%order.
+j = 0
+do i = 1, nr%trk
+	if (j == 0) then
+		j = 1
+	else if (pair(i)%value == pair(j)%value) then
+		trk(pair(j)%order)%nr_xover = trk(pair(j)%order)%nr_xover + trk(pair(i)%order)%nr_xover
+	else
+		j = j + 1
+		pair(j) = pair(i)
+	endif
+	inv(pair(i)%order) = j
+enddo
+nr%trk = j
+
+! Print statistics
+write (*, 500) nr
+
+! Add the track info to the NetCDF file
 call nfs (nf90_redef (ncid))
 call nfs (nf90_def_dim (ncid, 'track', nr%trk, dimid(3)))
 call def_var (ncid, 'satid', 'satellite ID', '', nf90_int1, dimid(3:3), varid(5))
@@ -261,25 +276,22 @@ call def_var (ncid, 'nr_xover', 'number of crossovers along track', '', nf90_int
 call def_var (ncid, 'nr_alt', 'number of measurements along track', '', nf90_int2, dimid(3:3), varid(13))
 call nfs (nf90_enddef (ncid))
 
-call nfs (nf90_put_var (ncid, varid( 5), trk(idx)%satid))
-call nfs (nf90_put_var (ncid, varid( 6), trk(idx)%cycle))
-call nfs (nf90_put_var (ncid, varid( 7), trk(idx)%pass))
-call nfs (nf90_put_var (ncid, varid( 8), trk(idx)%equator_lon))
-call nfs (nf90_put_var (ncid, varid( 9), trk(idx)%equator_time))
-call nfs (nf90_put_var (ncid, varid(10), trk(idx)%start_time))
-call nfs (nf90_put_var (ncid, varid(11), trk(idx)%end_time))
-call nfs (nf90_put_var (ncid, varid(12), trk(idx)%nr_xover))
-call nfs (nf90_put_var (ncid, varid(13), trk(idx)%nr_alt))
+call nfs (nf90_put_var (ncid, varid( 5), trk(pair(:nr%trk)%order)%satid))
+call nfs (nf90_put_var (ncid, varid( 6), trk(pair(:nr%trk)%order)%cycle))
+call nfs (nf90_put_var (ncid, varid( 7), trk(pair(:nr%trk)%order)%pass))
+call nfs (nf90_put_var (ncid, varid( 8), trk(pair(:nr%trk)%order)%equator_lon))
+call nfs (nf90_put_var (ncid, varid( 9), trk(pair(:nr%trk)%order)%equator_time))
+call nfs (nf90_put_var (ncid, varid(10), trk(pair(:nr%trk)%order)%start_time))
+call nfs (nf90_put_var (ncid, varid(11), trk(pair(:nr%trk)%order)%end_time))
+call nfs (nf90_put_var (ncid, varid(12), trk(pair(:nr%trk)%order)%nr_xover))
+call nfs (nf90_put_var (ncid, varid(13), trk(pair(:nr%trk)%order)%nr_alt))
 
 ! Renumber the track number for the xover data
-forall (i = 1:nr%trk)
-	key(idx(i)) = i	! key becomes the inverse of idx
-end forall
 call nfs (nf90_get_var (ncid, varid(4), trkid))
-trkid(1,:) = key(trkid(1,:))
-trkid(2,:) = key(trkid(2,:))
+trkid(1,:) = inv(trkid(1,:))
+trkid(2,:) = inv(trkid(2,:))
 call nfs (nf90_put_var (ncid, varid(4), trkid))
-deallocate (key, idx, trkid)
+deallocate (pair, inv, trkid)
 
 call nfs (nf90_close (ncid))
 

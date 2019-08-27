@@ -1,5 +1,5 @@
 !-----------------------------------------------------------------------
-! Copyright (c) 2011-2016  Remko Scharroo
+! Copyright (c) 2011-2019  Remko Scharroo
 ! See LICENSE.TXT file for copying and redistribution conditions.
 !
 ! This program is free software: you can redistribute it and/or modify
@@ -24,7 +24,7 @@ program rads_gen_tx_rgdr
 !
 ! syntax: rads_gen_tx_rgdr [options] < list_of_RGDR_file_names
 !
-! This program handles TOPEX Retracked GDR files in netCDF format,
+! This program handles TOPEX Retracked GDR files in NetCDF format,
 ! version 5 (released Jan 2015)
 ! The format is described in:
 !
@@ -192,7 +192,7 @@ do
 	flags = 0
 	call get_var (ncid, 'alton', a)
 	if (any(a /= 1d0)) call log_string ('Error: wrong altimeter found in data', .true.)
-	call nc2f ('instr_state_topex', 0, val=8)		! bit  0: Altimeter Side A/B
+	call nc2f ('instr_state_topex', 0, eq=8)		! bit  0: Altimeter Side A/B
 !	call nc2f ('qual_alt_1hz_off_nadir_angle_wf',1)	! bit  1: Quality off-nadir pointing
 	call nc2f ('instr_state_tmr', 2, mask=32) ! #5	! bit  2: TMR status (0=Channel 21A, 1=Channel 21B)
 	call nc2f ('alt_bad_1', 3, mask=64)	! #6		! bit  3: Quality dual-frequency iono

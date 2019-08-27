@@ -1,5 +1,5 @@
 !-----------------------------------------------------------------------
-! Copyright (c) 2011-2016  Remko Scharroo
+! Copyright (c) 2011-2019  Remko Scharroo
 ! See LICENSE.TXT file for copying and redistribution conditions.
 !
 ! This program is free software: you can redistribute it and/or modify
@@ -13,31 +13,41 @@
 ! GNU Lesser General Public License for more details.
 !-----------------------------------------------------------------------
 
-!*rads_gen_j2 -- Converts Jason-2 data to RADS
+!*rads_gen_jason -- Converts Jason-1/2/3 data to RADS
 !+
-program rads_gen_j2
+program rads_gen_jason
 
-! This program reads Jason-2 (O/I)GDR files and converts them to the RADS format,
-! written into files $RADSDATAROOT/data/j2/a/j2pPPPPcCCC.nc.
+! This program reads Jason-1/2/3 (O/I)GDR files and converts them to the RADS format,
+! written into files $RADSDATAROOT/data/jJ/a/jJpPPPPcCCC.nc.
+!    jJ = Jason satellite abbreviation
 !  PPPP = relative pass number
 !   CCC = cycle number
 !
-! syntax: rads_gen_j2 [options] < list_of_JASON2_file_names
+! syntax: rads_gen_jason [options] < list_of_JASON3_file_names
 !
-! This program handles Jason-2 OGDR, IGDR and GDR files in netCDF format,
-! version D (also known as GDR-D).
+! This program handles Jason-1, -2 and -3 OGDR, IGDR and GDR files in NetCDF format.
 ! The format is described in:
 !
-! [1] OSTM/Jason-2 Products Handbook, SALP-MU-M-OP-15815-CN (CNES),
+! [1] IGDR and GDR Jason Products, AVISO and PODAAC User Handbook,
+!     SMM-MU-M5-OP-13184-CN (AVISO), JPL D-21352 (PODAAC),
+!     Edition 4.0, June 2008
+!
+! [2] OSTM/Jason-2 Products Handbook, SALP-MU-M-OP-15815-CN (CNES),
 !     EUM/OPS-JAS/MAN/08/0041 (EUMETSAT), OSTM-29-1237 (JPL),
 !     Version 1.8, 1 Dec 2011.
+!
+! [3] Jason-3 Products Handbook, SALP-MU-M-OP-16118-CN (CNES)
+!     Version 1.0, 9 July 2012
+!
+! [4] SALP Products Specification - Volume 30: Jason-3 Products
+!     SALP-ST-M-EA-16122-CN, Version 1.2, 9 December 2013
 !-----------------------------------------------------------------------
 !
 ! Variables array fields to be filled are:
 ! time - Time since 1 Jan 85
 ! lat - Latitude
 ! lon - Longitude
-! alt_gdrd/alt_gdre - Orbit altitude
+! alt_gdrd, alt_gdre - Orbit altitude
 ! alt_rate - Orbit altitude rate
 ! range_* - Ocean range (retracked)
 ! dry_tropo_ecmwf - ECMWF dry tropospheric correction
@@ -67,9 +77,9 @@ program rads_gen_j2
 ! rad_liquid_water - Liquid water content
 ! rad_water_vapor - Water vapor content
 !
-! Extionsions _* are:
+! Extensions _* are:
 ! _ku:      Ku-band retracked with MLE4
-! _ku_mle3: Ku-band retracked with MLE3
+! _ku_mle3: Ku-band retracked with MLE3 (not for Jason-1)
 ! _c:       C-band
 !-----------------------------------------------------------------------
 use rads
@@ -83,14 +93,15 @@ use netcdf
 
 ! Command line arguments
 
-integer(fourbyteint) :: i, j, ios
+integer(fourbyteint) :: ios, i, j, q, r
 character(len=rads_cmdl) :: infile, arg
 
 ! Header variables
 
 integer(fourbyteint) :: cyclenr, passnr, varid
 real(eightbytereal) :: equator_time
-logical :: ogdr
+logical :: gdre = .false., mle3 = .true.
+integer :: latency = rads_nrt
 
 ! Data variables
 
@@ -103,9 +114,9 @@ real(eightbytereal), parameter :: sec2000=473299200d0	! UTC seconds from 1 Jan 1
 ! Initialise
 
 call synopsis
-call rads_gen_getopt ('j2')
+call rads_gen_getopt ('')
 call synopsis ('--head')
-call rads_init (S, sat)
+if (sat /= '') call rads_init (S, sat)
 
 !----------------------------------------------------------------------
 ! Read all file names from standard input
@@ -123,10 +134,14 @@ do
 		cycle
 	endif
 
-! Check if input is GDR-D
+! Check if input is GDR-T/D or GDR-E
 
-	if (index(infile,'_2Pd') <= 0) then
-		call log_string ('Error: this is not GDR-D', .true.)
+	if (index(infile,'_2PT') > 0 .or. index(infile,'_2Pd') > 0) then
+		gdre = .false.
+	else if (index(infile,'_2Pe') > 0) then
+		gdre = .true.
+	else
+		call log_string ('Error: this is not GDR-T, GDR-d, or GDR-e', .true.)
 		cycle
 	endif
 
@@ -140,14 +155,42 @@ do
 		call log_string ('Error: too many measurements', .true.)
 		cycle
 	endif
+
+! Get the mission name and initialise RADS (if not done before)
+
 	call nfs(nf90_get_att(ncid,nf90_global,'mission_name',arg))
-	if (arg /= 'OSTM/Jason-2') then
-		call log_string ('Error: wrong misson-name found in header', .true.)
+	mle3 = (arg /= 'Jason-1')
+	select case (arg)
+	case ('Jason-1')
+		arg = 'j1'
+	case ('OSTM/Jason-2')
+		arg = 'j2'
+	case ('Jason-3')
+		arg = 'j3'
+	case default
+		call log_string ('Error: wrong mission_name found in header', .true.)
+		cycle
+	end select
+	if (sat == '') then
+		call rads_init (S, arg)
+	else if (S%sat /= arg(:2)) then
+		call log_string ('Error: wrong mission_name found in header', .true.)
 		cycle
 	endif
 
+! Read rest of global attributes
+
 	call nfs(nf90_get_att(ncid,nf90_global,'title',arg))
-	ogdr = (arg(:4) == 'OGDR')
+	if (arg(:4) == 'OGDR') then
+		latency = rads_nrt
+	else if (arg(:4) == 'IGDR') then
+		latency = rads_stc
+	else if (arg(:3) == 'GDR') then
+		latency = rads_ntc
+	else
+		call log_string ('Error: file skipped: unknown latency', .true.)
+		cycle
+	endif
 	call nfs(nf90_get_att(ncid,nf90_global,'cycle_number',cyclenr))
 	call nfs(nf90_get_att(ncid,nf90_global,'pass_number',passnr))
 	call nfs(nf90_get_att(ncid,nf90_global,'equator_time',arg))
@@ -159,6 +202,54 @@ do
 		call nfs(nf90_close(ncid))
 		call log_string ('Skipped', .true.)
 		cycle
+	endif
+
+! Update mission phase if required
+
+	call rads_set_phase (S, equator_time)
+
+! Use special conversion of cycle numbers for geodetic mission
+
+	if (S%sat == 'j1' .and. S%phase%name(1:1) == 'c') then
+		! Redetermine subcycle numbering from the GDR cycle and pass numbers
+		r = (cyclenr - 500) * 280 + (passnr - 1) ! GDRs of Phase C start with Cycle 500 and have 280 passes per cycle
+		q = (r/10438) * 43
+		r = modulo(r,10438)
+		q = q + (r/4608) * 19
+		r = modulo(r,4608)
+		q = q + (r/1222) * 5
+		r = modulo(r,1222)
+		q = q + (r/280)
+		r = modulo(r,280)
+		cyclenr = q + 382
+		passnr = r + 1
+	else if (S%sat == 'j2' .and. S%phase%name(1:1) == 'c') then
+		! Redetermine subcycle numbering from the GDR cycle and pass numbers
+		r = (cyclenr - 500) * 254 + (passnr - 1) ! GDRs of Phase C start with Cycle 500 and have 254 passes per cycle
+		q = (r/9472) * 23
+		r = modulo(r,9472)
+		q = q + (r/3702) * 9
+		r = modulo (r,3702)
+		q = q + (r/2068) * 5
+		r = modulo(r,2068)
+		q = q + (r/434)
+		r = modulo(r,434)
+		cyclenr = q + 332
+		passnr = r + 1
+	else if (S%sat == 'j2' .and. S%phase%name(1:1) == 'd') then
+		! Redetermine subcycle numbering from the GDR cycle and pass numbers
+		r = (cyclenr - 600) * 254 + (passnr - 1) ! GDRs of Phase D start with Cycle 600 and have 254 passes per cycle
+		r = r + 142 ! This is to shift the pass numbering in order to align with Phase C
+		q = (r/9472) * 23
+		r = modulo(r,9472)
+		q = q + (r/3702) * 9
+		r = modulo (r,3702)
+		q = q + (r/2068) * 5
+		r = modulo(r,2068)
+		q = q + (r/434)
+		r = modulo(r,434)
+		cyclenr = q + 356
+		passnr = r + 1
 	endif
 
 ! Store relevant info
@@ -192,11 +283,11 @@ do
 	flags = 0
 	call nc2f ('alt_state_flag_oper',0)				! bit  0: Altimeter Side A/B
 	call nc2f ('qual_alt_1hz_off_nadir_angle_wf_ku',1)	! bit  1: Quality off-nadir pointing
-	call nc2f ('surface_type',2,val=2)				! bit  2: Continental ice
+	call nc2f ('surface_type',2,eq=2)				! bit  2: Continental ice
 	call nc2f ('qual_alt_1hz_range_c',3)			! bit  3: Quality dual-frequency iono
-	call nc2f ('surface_type',4,lim=2)				! bit  4: Water/land
-	call nc2f ('surface_type',5,lim=1)				! bit  5: Ocean/other
-	call nc2f ('rad_surf_type',6,lim=2)				! bit  6: Radiometer land flag
+	call nc2f ('surface_type',4,ge=2)				! bit  4: Water/land
+	call nc2f ('surface_type',5,ge=1)				! bit  5: Ocean/other
+	call nc2f ('rad_surf_type',6,ge=2)				! bit  6: Radiometer land flag
 	call nc2f ('rain_flag',7)
 	call nc2f ('ice_flag',7)						! bit  7: Altimeter rain or ice flag
 	call nc2f ('rad_rain_flag',8)
@@ -207,13 +298,15 @@ do
 
 ! Now do specifics for MLE3 (not used for the time being)
 
-	flags_save = flags	! Keep flags for later
-	call nc2f ('qual_alt_1hz_range_ku_mle3',3)		! bit  3: Quality dual-frequency iono
-	call nc2f ('qual_alt_1hz_range_ku_mle3',11)		! bit 11: Quality range
-	call nc2f ('qual_alt_1hz_swh_ku_mle3',12)		! bit 12: Quality SWH
-	call nc2f ('qual_alt_1hz_sig0_ku_mle3',13)		! bit 13: Quality Sigma0
-	flags_mle3 = flags	! Copy result for MLE3
-	flags = flags_save	! Continue with MLE4 flags
+	if (mle3) then
+		flags_save = flags	! Keep flags for later
+		call nc2f ('qual_alt_1hz_range_ku_mle3',3)		! bit  3: Quality dual-frequency iono
+		call nc2f ('qual_alt_1hz_range_ku_mle3',11)		! bit 11: Quality range
+		call nc2f ('qual_alt_1hz_swh_ku_mle3',12)		! bit 12: Quality SWH
+		call nc2f ('qual_alt_1hz_sig0_ku_mle3',13)		! bit 13: Quality Sigma0
+		flags_mle3 = flags	! Copy result for MLE3
+		flags = flags_save	! Continue with MLE4 flags
+	endif
 
 ! Redo the last ones for MLE4
 
@@ -228,54 +321,71 @@ do
 	call new_var ('time', a + sec2000)
 	call cpy_var ('lat')
 	call cpy_var ('lon')
-	if (cyclenr < 254) then ! Before Cycle 254 was GDR-D orbit
+	if (S%sat == 'j2' .and. cyclenr < 254) then ! Jason-2 before Cycle 254 was GDR-D orbit
 		call cpy_var ('alt', 'alt_gdrd')
-	else
+	else ! All Jason-1 and Jason-3 data, as well as more recent Jason-2 data
 		call cpy_var ('alt', 'alt_gdre')
 	endif
 	call cpy_var ('orb_alt_rate', 'alt_rate')
 	call cpy_var ('range_ku')
-	call cpy_var ('range_ku_mle3')
+	call cpy_var ('range_ku_mle3', mle3)
 	call cpy_var ('range_c')
 	call cpy_var ('model_dry_tropo_corr', 'dry_tropo_ecmwf')
 	call cpy_var ('rad_wet_tropo_corr', 'wet_tropo_rad')
 	call cpy_var ('model_wet_tropo_corr', 'wet_tropo_ecmwf')
 	call cpy_var ('iono_corr_alt_ku', 'iono_alt')
-	call cpy_var ('iono_corr_alt_ku_mle3', 'iono_alt_mle3')
-	if (.not.ogdr) call cpy_var ('iono_corr_gim_ku', 'iono_gim')
+	call cpy_var ('iono_corr_alt_ku_mle3', 'iono_alt_mle3', mle3)
+	call cpy_var ('iono_corr_gim_ku', 'iono_gim', latency /= rads_nrt)
 	call cpy_var ('inv_bar_corr', 'inv_bar_static')
-	if (ogdr) then
+	if (latency == rads_nrt) then
 		call cpy_var ('inv_bar_corr', 'inv_bar_mog2d')
 	else
 		call cpy_var ('inv_bar_corr hf_fluctuations_corr ADD', 'inv_bar_mog2d')
 	endif
 	call cpy_var ('solid_earth_tide', 'tide_solid')
-	call cpy_var ('ocean_tide_sol1 load_tide_sol1 SUB', 'tide_ocean_got48')
-	call cpy_var ('ocean_tide_sol2 load_tide_sol2 SUB', 'tide_ocean_fes04')
-	call cpy_var ('load_tide_sol1', 'tide_load_got48')
-	call cpy_var ('load_tide_sol2', 'tide_load_fes04')
+	if (gdre) then
+		call cpy_var ('ocean_tide_sol1 load_tide_sol1 SUB', 'tide_ocean_got410')
+		call cpy_var ('ocean_tide_sol2 load_tide_sol2 SUB ocean_tide_non_equil ADD', 'tide_ocean_fes14')
+		call cpy_var ('load_tide_sol1', 'tide_load_got410')
+		call cpy_var ('load_tide_sol2', 'tide_load_fes14')
+	else
+		call cpy_var ('ocean_tide_sol1 load_tide_sol1 SUB', 'tide_ocean_got48')
+		call cpy_var ('ocean_tide_sol2 load_tide_sol2 SUB ocean_tide_non_equil ADD', 'tide_ocean_fes04')
+		call cpy_var ('load_tide_sol1', 'tide_load_got48')
+		call cpy_var ('load_tide_sol2', 'tide_load_fes04')
+	endif
+	call cpy_var ('ocean_tide_equil', 'tide_equil')
+	call cpy_var ('ocean_tide_non_equil', 'tide_non_equil')
 	call cpy_var ('pole_tide', 'tide_pole')
 	call cpy_var ('sea_state_bias_ku', 'ssb_cls')
-	call cpy_var ('sea_state_bias_ku_mle3', 'ssb_cls_mle3')
+	call cpy_var ('sea_state_bias_ku_mle3', 'ssb_cls_mle3', mle3)
 	call cpy_var ('sea_state_bias_c', 'ssb_cls_c')
-	call cpy_var ('geoid', 'geoid_egm96')
-	call cpy_var ('mean_sea_surface', 'mss_cnescls11')
+	if (gdre) then
+		call cpy_var ('geoid', 'geoid_egm2008')
+	else
+		call cpy_var ('geoid', 'geoid_egm96')
+	endif
+	if (S%sat == 'j2' .and. S%phase%name == 'c') then
+		call cpy_var ('mean_sea_surface', 'mss_cnescls15')
+	else
+		call cpy_var ('mean_sea_surface', 'mss_cnescls11')
+	endif
 	call cpy_var ('swh_ku')
-	call cpy_var ('swh_ku_mle3')
+	call cpy_var ('swh_ku_mle3', mle3)
 	call cpy_var ('swh_c')
 	call cpy_var ('sig0_ku')
-	call cpy_var ('sig0_ku_mle3')
+	call cpy_var ('sig0_ku_mle3', mle3)
 	call cpy_var ('sig0_c')
 	call cpy_var ('wind_speed_alt')
-	call cpy_var ('wind_speed_alt_mle3')
+	call cpy_var ('wind_speed_alt_mle3', mle3)
 	call cpy_var ('wind_speed_rad')
 	call cpy_var ('wind_speed_model_u', 'wind_speed_ecmwf_u')
 	call cpy_var ('wind_speed_model_v', 'wind_speed_ecmwf_v')
 	call cpy_var ('range_rms_ku')
-	call cpy_var ('range_rms_ku_mle3')
+	call cpy_var ('range_rms_ku_mle3', mle3)
 	call cpy_var ('range_rms_c')
 	call cpy_var ('range_numval_ku')
-	call cpy_var ('range_numval_ku_mle3')
+	call cpy_var ('range_numval_ku_mle3', mle3)
 	call cpy_var ('range_numval_c')
 	call cpy_var ('bathymetry', 'topo_dtm2000')
 	call cpy_var ('tb_187')
@@ -283,21 +393,25 @@ do
 	call cpy_var ('tb_340')
 	a = flags
 	call new_var ('flags', a)
-	a = flags_mle3
-	call new_var ('flags_mle3', a)
+	if (mle3) then
+		a = flags_mle3
+		call new_var ('flags_mle3', a)
+	endif
 	call cpy_var ('swh_rms_ku')
-	call cpy_var ('swh_rms_ku_mle3')
+	call cpy_var ('swh_rms_ku_mle3', mle3)
 	call cpy_var ('swh_rms_c')
 	call cpy_var ('sig0_rms_ku')
-	call cpy_var ('sig0_rms_ku_mle3')
+	call cpy_var ('sig0_rms_ku_mle3', mle3)
 	call cpy_var ('sig0_rms_c')
 	call cpy_var ('off_nadir_angle_wf_ku', 'off_nadir_angle2_wf_ku')
 	call cpy_var ('atmos_corr_sig0_ku', 'dsig0_atmos_ku')
 	call cpy_var ('atmos_corr_sig0_c', 'dsig0_atmos_c')
 	call cpy_var ('rad_liquid_water', 'liquid_water_rad')
 	call cpy_var ('rad_water_vapor', 'water_vapor_rad')
-	call cpy_var ('ssha', 'ssha')
-	call cpy_var ('ssha_mle3', 'ssha_mle3')
+	call cpy_var ('ssha')
+	call cpy_var ('ssha_mle3')
+	a = latency
+	call new_var ('latency', a)
 
 ! Dump the data
 
@@ -317,14 +431,14 @@ contains
 
 subroutine synopsis (flag)
 character(len=*), optional :: flag
-if (rads_version ('Write Jason-2 data to RADS', flag=flag)) return
-call synopsis_devel (' < list_of_JASON2_file_names')
+if (rads_version ('Write Jason-1/2/3 data to RADS', flag=flag)) return
+call synopsis_devel (' < list_of_jason_file_names')
 write (*,1310)
 1310 format (/ &
-'This program converts Jason-2 OGDR/IGDR/GDR files to RADS data' / &
-'files with the name $RADSDATAROOT/data/j2/a/pPPPP/j2pPPPPcCCC.nc.' / &
+'This program converts Jason-1/2/3 OGDR/IGDR/GDR files to RADS data' / &
+'files with the name $RADSDATAROOT/data/jJ/a/pPPPP/jJpPPPPcCCC.nc.' / &
 'The directory is created automatically and old files are overwritten.')
 stop
 end subroutine synopsis
 
-end program rads_gen_j2
+end program rads_gen_jason

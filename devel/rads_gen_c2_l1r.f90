@@ -1,5 +1,5 @@
 !-----------------------------------------------------------------------
-! Copyright (c) 2011-2016  Remko Scharroo
+! Copyright (c) 2011-2019  Remko Scharroo
 ! See LICENSE.TXT file for copying and redistribution conditions.
 !
 ! This program is free software: you can redistribute it and/or modify
@@ -23,7 +23,7 @@
 !
 ! syntax: rads_gen_c2_l1r [options] < list_of_L1R_file_names
 !
-! This program handles only the CryoSat-2 L1Rs in netCDF format.
+! This program handles only the CryoSat-2 L1Rs in NetCDF format.
 !-----------------------------------------------------------------------
 !
 ! Variables to be written to RADS are:
@@ -86,6 +86,7 @@ use rads_gen
 use rads_misc
 use rads_netcdf
 use rads_time
+use rads_geo
 use netcdf
 
 ! Command line arguments
@@ -127,13 +128,13 @@ integer(fourbyteint), parameter :: maxint4=2147483647
 real(eightbytereal), parameter :: fai = 7.3d-3
 real(eightbytereal), parameter :: sec2000=473299200d0, rev_time = 5953.45d0, rev_long = -24.858d0
 real(eightbytereal), parameter :: pitch_bias = 0.096d0, roll_bias = 0.086d0, yaw_bias = 0d0	! Attitude biases to be added
-real(eightbytereal) :: uso_corr, dhellips, tbias, range_bias
+real(eightbytereal) :: uso_corr, tbias, range_bias
 integer(fourbyteint) :: i, j, m, oldcyc=0, oldpass=0, mle=3
 
 ! Initialise
 
 call synopsis
-call rads_gen_getopt ('c2')
+call rads_gen_getopt ('c2', 'mw with-20hz with-wvf')
 call synopsis ('--head')
 call rads_init (S, sat)
 
@@ -314,6 +315,8 @@ do
 	call flag_set (nvalid <= 10, 13)
 
 	call new_var ('flags', dble(flags))
+	a = rads_stc
+	call new_var ('latency', a)
 
 ! Determine range bias, prior to Baseline C only
 ! 1) According to Marco Fornari:
@@ -463,7 +466,7 @@ do
 		! Move the data to be beginning
 		do i = 1,nvar
 			select case (var(i)%v%info%ndims)
-			case (1)
+			case (0, 1)
 				var(i)%d1(1:recnr(2)) = var(i)%d1(ndata+1:ndata+recnr(2))
 			case (2)
 				var(i)%d2(:,1:recnr(2)) = var(i)%d2(:,ndata+1:ndata+recnr(2))
@@ -641,7 +644,7 @@ enddo
 do i = 1,nvar
 	if (var(i)%skip) cycle
 	select case (var(i)%v%info%ndims)
-	case (1)
+	case (0, 1)
 		call rads_put_var (S, P, var(i)%v, var(i)%d1(1:ndata))
 	case (2)
 		call rads_put_var (S, P, var(i)%v, var(i)%d2(:,1:ndata))

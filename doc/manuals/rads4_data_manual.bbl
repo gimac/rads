@@ -16,15 +16,9 @@ Ablain, M., M.-I. Pujol, S.~Philipps, and N.~Picot (2008), Assessment of
   {Jason-2} and {Jason-1} orbit quality from {SSH} analysis, Ocean Science
   Topography Science Team Meeting, Nice, France, 10-12 November 2008.
 
-\bibitem[{\textit{Andersen and Knudsen}(2009{\natexlab{a}})}]{andersen2009}
-Andersen, O.~B., and P.~Knudsen (2009{\natexlab{a}}), {DNSC08} mean sea surface
-  and mean dynamic topography models, \textit{J.\ Geophys.\ Res.},
-  \textit{114}, C11001, \doi{10.1029/2008JC005179}.
-
-\bibitem[{\textit{Andersen and Knudsen}(2009{\natexlab{b}})}]{andersen2009a}
-Andersen, O.~B., and P.~Knudsen (2009{\natexlab{b}}), The {DNSC08BAT}
-  bathymetry developed from satellite altimetry, \textit{Tech. rep.}, Danish
-  National Spacecenter.
+\bibitem[{\textit{Andersen and Knudsen}(2009)}]{andersen2009a}
+Andersen, O.~B., and P.~Knudsen (2009), The {DNSC08BAT} bathymetry developed
+  from satellite altimetry, \textit{Tech. rep.}, Danish National Spacecenter.
 
 \bibitem[{\textit{Andersen and Knudsen}(2010)}]{andersen2010}
 Andersen, O.~B., and P.~Knudsen (2010), The {DTU10} mean sea surface and mean
@@ -69,6 +63,13 @@ Carr{\`e}re, L., and F.~Lyard (2003), Modeling the barotropic response of the
   global ocean to atmospheric wind and pressure forcing - comparisons with
   observations, \textit{Geophys.\ Res.\ Lett.}, \textit{30}(6),
   \doi{10.1029/2002GL016473}.
+
+\bibitem[{\textit{Carr{\`e}re et~al.}(2016)\textit{Carr{\`e}re, Faug{\`e}re,
+  and Ablain}}]{carrere2016}
+Carr{\`e}re, L., Y.~Faug{\`e}re, and M.~Ablain (2016), Major improvement of
+  altimetry sea level estimations using pressure derived corrections based on
+  {ERA-interim} atmospheric reanalysis, \textit{Ocean Sci.\ Discuss.},
+  \textit{12}, 825--842, \doi{10.5194/os-12-825-2016}.
 
 \bibitem[{\textit{Cartwright and Edden}(1973)}]{cartwright1973}
 Cartwright, D.~E., and A.~C. Edden (1973), Corrected tables of tidal harmonics,
@@ -115,8 +116,8 @@ Cr{\'e}taux, J.-F., and C.~M. Birkett (2006), Lake studies from satellite radar
 \bibitem[{\textit{Desai et~al.}(2015)\textit{Desai, Wahr, and
   Beckley}}]{desai2015}
 Desai, S.~D., J.~M. Wahr, and B.~D. Beckley (2015), Revisiting the pole tide
-  for and from satellite altimetry, \textit{J.\ Geod.},
-  \doi{10.1007/s00190-015-0848-7}.
+  for and from satellite altimetry, \textit{J.\ Geod.}, \textit{89}(12),
+  1233--1243, \doi{10.1007/s00190-015-0848-7}.
 
 \bibitem[{\textit{Dumont et~al.}(2001)\textit{Dumont, Sicard, Stum, and
   Zanif{\'e}}}]{dumont2001}
@@ -188,7 +189,7 @@ Gourrion, J., D.~Vandemark, S.~Bailey, B.~Chapron, C.~P. Gommenginger, P.~G.
   Purdy}}]{hayne1994}
 Hayne, G.~S., D.~W. Hancock, III, and C.~L. Purdy (1994), {TOPEX} altimeter
   range stability estimates from calibration mode data, \textit{{TOPEX Research
-  News}}, \textit{3}, 18--22.
+  News}}, \textit{3}, 18--22, \doi{10.1029/94JC01777}.
 
 \bibitem[{\textit{Imel}(1994)}]{imel1994}
 Imel, D.~A. (1994), Evaluation of the {TOPEX} dual-frequency ionosphere
@@ -293,11 +294,12 @@ Mendes, V.~B., G.~Prates, L.~Santos, and R.~B. Langley (2000), An evaluation of
 Munk, W.~H., and G.~J.~F. MacDonald (1960), \textit{The Rotation of the Earth:
   A Geophysical Discussion}, Cambridge University Press, New York.
 
-\bibitem[{\textit{Pavlis et~al.}(2008)\textit{Pavlis, Holmes, Kenyon, and
-  Factor}}]{pavlis2008}
-Pavlis, N.~K., S.~A. Holmes, S.~C. Kenyon, and J.~K. Factor (2008), An {Earth}
-  gravitational model to degree 2160: {EGM2008}, presented at the 2008 General
-  Assembly of the European Geosciences Union, Vienna, Austria, April 13-18.
+\bibitem[{\textit{Pavlis et~al.}(2012)\textit{Pavlis, Holmes, Kenyon, and
+  Factor}}]{pavlis2012}
+Pavlis, N.~K., S.~A. Holmes, S.~C. Kenyon, and J.~K. Factor (2012), The
+  development and evaluation of the {Earth Gravitational Model} 2008
+  ({EGM2008}), \textit{J.\ Geophys.\ Res.}, \textit{117}, B04406,
+  \doi{10.1029/2011JB008916}.
 
 \bibitem[{\textit{Ponte and Ray}(2002)}]{ponte2002}
 Ponte, R.~M., and R.~D. Ray (2002), Atmospheric pressure corrections in geodesy
@@ -316,7 +318,7 @@ Queffeulou, P. (2004), Long-term validation of wave height measurements from
 
 \bibitem[{\textit{Ray}(2013)}]{ray2013}
 Ray, R.~D. (2013), Precise comparisons of bottom-pressure and altimetric ocean
-  tides, \textit{J.\ Geophys.\ Res.}, \textit{118}(4570-4584),
+  tides, \textit{J.\ Geophys.\ Res.}, \textit{118}, 4570--4584,
   \doi{10.1002/jgrc.20336}.
 
 \bibitem[{\textit{Ray et~al.}(2011)\textit{Ray, Egbert, and
@@ -475,7 +477,7 @@ Wahr, J.~M. (1985), Deformation of the {Earth} induced by polar motion,
 Wahr, J.~M., R.~S. Nerem, and S.~V. Bettadpur (2015), The pole tide and its
   effect on {GRACE} time-variable gravity measurements: implications for the
   estimates of surface mass variations, \textit{J.\ Geophys.\ Res.},
-  \textit{120}, \doi{10.1002/2015JB011986}.
+  \textit{120}, 4597--4615, \doi{10.1002/2015JB011986}.
 
 \bibitem[{\textit{Wessel and Smith}(1996)}]{wessel1996}
 Wessel, P., and W.~H.~F. Smith (1996), A global, self-consistent, hierarchical,

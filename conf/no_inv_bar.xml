@@ -1,5 +1,5 @@
 <!--
-Copyright (c) 2011-2016  Remko Scharroo
+Copyright (c) 2011-2019  Remko Scharroo
 See LICENSE.TXT file for copying and redistribution conditions.
 
 This program is free software: you can redistribute it and/or modify
@@ -17,5 +17,8 @@ Do not correct sea level anomaly for inverse barometer
 -->
 
 <var name="sla">
-	<data action="delete">inv_bar SUB</data>
+	<data action="delete">dac SUB</data>
+</var>
+<var name="sla_plrm">
+        <data action="delete">dac SUB</data>
 </var>

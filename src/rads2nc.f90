@@ -1,5 +1,5 @@
 !-----------------------------------------------------------------------
-! Copyright (c) 2011-2016  Remko Scharroo
+! Copyright (c) 2011-2019  Remko Scharroo
 ! See LICENSE.TXT file for copying and redistribution conditions.
 !
 ! This program is free software: you can redistribute it and/or modify
@@ -13,16 +13,14 @@
 ! GNU Lesser General Public License for more details.
 !-----------------------------------------------------------------------
 
-!*rads2nc -- Select RADS data and output to netCDF
+!*rads2nc -- Select RADS data and output to NetCDF
 !+
 program rads2nc
 !
-! This program converts the RADS netCDF altimeter data and output them
-! to new netCDF data files.
+! This program converts the RADS NetCDF altimeter data and output them
+! to new NetCDF data files.
 ! At the same time it applies the standard selection criteria
 ! and allows some further modifications and selections.
-!
-! usage: rads2nc sat=<sat> [RADS_options] [options]
 !-----------------------------------------------------------------------
 use rads
 use rads_netcdf
@@ -112,7 +110,7 @@ contains
 !***********************************************************************
 
 subroutine synopsis
-if (rads_version ('Select RADS altimeter data and output to netCDF')) return
+if (rads_version ('Select RADS altimeter data and output to NetCDF')) return
 call rads_synopsis
 write (*,1300)
 1300 format (/ &

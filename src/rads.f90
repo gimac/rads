@@ -28,9 +28,9 @@ integer(fourbyteint), parameter :: rads_noerr = 0, &
 	rads_err_nc_file = 1, rads_err_nc_parse = 2, rads_err_nc_close = 3, rads_err_memory = 4, &
 	rads_err_var = 5, rads_err_source = 6, rads_err_nc_var = 7, rads_err_nc_get = 8, &
 	rads_err_xml_parse = 9, rads_err_xml_file = 10, rads_err_alias = 11, rads_err_math = 12, &
-	rads_err_cycle = 13, rads_err_nc_create = 14, rads_err_nc_put = 15
+	rads_err_cycle = 13, rads_err_nc_create = 14, rads_err_nc_put = 15, rads_err_nophase = 16
 ! Additional RADS4 helpers
-character(len=1), parameter :: rads_linefeed = char(10), rads_noedit = '_'
+character(len=1), parameter :: rads_linefeed = char(10), rads_tab = char(9), rads_noedit = '_'
 ! RADS3 errors or incompatibilities
 integer(fourbyteint), parameter :: rads_err_incompat = 101, rads_err_noinit = 102
 integer(twobyteint), parameter :: rads_nofield = -1
@@ -51,7 +51,7 @@ type :: rads_varinfo                                 ! Information on variable u
 	character(len=rads_naml) :: standard_name        ! Optional CF 'standard' name ('' if none)
 	character(len=rads_naml) :: source               ! Optional data source ('' if none)
 	character(len=rads_naml) :: parameters           ! Optional link to model parameters ('' if none)
-	character(len=rads_strl) :: dataname             ! Name associated with data (e.g. netCDF var name)
+	character(len=rads_strl) :: dataname             ! Name associated with data (e.g. NetCDF var name)
 	character(len=rads_cmdl) :: flag_meanings        ! Optional meaning of flag values ('' if none)
 	character(len=rads_cmdl) :: quality_flag         ! Quality flag(s) associated with var ('' if none)
 	character(len=rads_cmdl) :: comment              ! Optional comment ('' if none)
@@ -62,12 +62,12 @@ type :: rads_varinfo                                 ! Information on variable u
 	real(eightbytereal) :: default                   ! Optional default value (Inf if not set)
 	real(eightbytereal) :: limits(2)                 ! Lower and upper limit for editing
 	real(eightbytereal) :: plot_range(2)             ! Suggested range for plotting
-	real(eightbytereal) :: add_offset, scale_factor  ! Offset and scale factor in case of netCDF
+	real(eightbytereal) :: add_offset, scale_factor  ! Offset and scale factor in case of NetCDF
 	real(eightbytereal) :: xmin, xmax, mean, sum2    ! Minimum, maximum, mean, sum squared deviation
 	logical :: boz_format                            ! Format starts with B, O or Z.
 	integer(fourbyteint) :: ndims                    ! Number of dimensions of variable
 	integer(fourbyteint) :: brid                     ! Branch ID (default 1)
-	integer(fourbyteint) :: nctype, varid            ! netCDF data type (nf90_int, etc.) and var ID
+	integer(fourbyteint) :: nctype, varid            ! NetCDF data type (nf90_int, etc.) and input var ID
 	integer(fourbyteint) :: datatype                 ! Type of data (one of rads_type_*)
 	integer(fourbyteint) :: datasrc                  ! Retrieval source (one of rads_src_*)
 	integer(fourbyteint) :: cycle, pass              ! Last processed cycle and pass
@@ -93,9 +93,10 @@ type :: rads_phase                                   ! Information about altimet
 	real(eightbytereal) :: start_time, end_time      ! Start time and end time of this phase
 	real(eightbytereal) :: ref_time, ref_lon         ! Time and lon of equator crossing of "ref. pass"
 	integer(fourbyteint) :: ref_cycle, ref_pass      ! Cycle and pass number of "reference pass"
+	integer(fourbyteint) :: ref_orbit                ! Absolute orbit nr of "reference pass" (at eq.)
 	real(eightbytereal) :: pass_seconds              ! Length of pass in seconds
 	real(eightbytereal) :: repeat_days               ! Length of repeat period in days
-	real(eightbytereal) :: repeat_shift              ! Eastward shift of track pattern for near repeats
+	real(eightbytereal) :: repeat_shift              ! Eastward shift of track pattern per cycle for near repeats
 	integer(fourbyteint) :: repeat_nodal             ! Length of repeat period in nodal days
 	integer(fourbyteint) :: repeat_passes            ! Number of passes per repeat period
 	type(rads_cyclist), pointer :: subcycles         ! Subcycle definition (if requested)
@@ -133,7 +134,7 @@ endtype
 
 type :: rads_file                                    ! Information on RADS data file
 	integer(fourbyteint) :: ncid                     ! NetCDF ID of pass file
-	character(len=rads_cmdl) :: name                 ! Name of the netCDF pass file
+	character(len=rads_cmdl) :: name                 ! Name of the NetCDF pass file
 endtype
 
 type :: rads_pass                                    ! Pass structure
@@ -175,7 +176,7 @@ integer(fourbyteint), save :: rads_nopt = 0          ! Number of command line op
 !	use rads
 !-----------------------------------------------------------------------
 ! COPYRIGHT
-! Copyright (c) 2011-2016  Remko Scharroo
+! Copyright (c) 2011-2019  Remko Scharroo
 ! See LICENSE.TXT file for copying and redistribution conditions.
 !
 ! This program is free software: you can redistribute it and/or modify
@@ -197,7 +198,6 @@ integer(twobyteint), parameter, private :: flag_masks (0:15) = &
 integer(fourbyteint), parameter, private :: id_sat = 1, id_xml = 2, id_alias = 3, id_misc = 4, id_var = 5
 
 include 'config.f90'
-include 'rads_version.f90'
 
 ! Some private variables to keep
 
@@ -344,19 +344,20 @@ end interface rads_get_var
 ! Define variable(s) to be written to RADS data file
 !
 ! SYNTAX
-! subroutine rads_def_var (S, P, var, nctype, scale_factor, add_offset, ndims)
+! subroutine rads_def_var (S, P, var, nctype, scale_factor, add_offset, ndims, varid)
 ! type(rads_sat), intent(inout) :: S
 ! type(rads_pass), intent(inout) :: P
 ! type(rads_var), intent(in) :: var <or> var(:)
 ! <or> character(len=*), intent(in) :: var
 ! integer(fourbyteint), intent(in), optional :: nctype, ndims
 ! real(eightbytereal), intent(in), optional :: scale_factor, add_offset
+! integer(fourbyteint), intent(out), optional :: varid
 !
 ! PURPOSE
 ! This routine defines the variables to be written to a RADS data file by
 ! the reference to the variable struct of type(rads_var), or a
 ! number of variables referenced by an array of structures.
-! This will create the netCDF variable and its attributes in the file
+! This will create the NetCDF variable and its attributes in the file
 ! previously opened with rads_create_pass or rads_open_pass.
 !
 ! The optional arguments <nctype>, <scale_factor>, <add_offset>, <ndims>  can
@@ -366,10 +367,11 @@ end interface rads_get_var
 ! S        : Satellite/mission dependent structure
 ! P        : Pass structure
 ! var      : Structure(s) of variable(s) of type(rads_var) or name of variable
-! nctype   : (optional) Data type in netCDF file
+! nctype   : (optional) Data type in NetCDF file
 ! scale_factor : (optional) Value of the scale_factor attribute
 ! add_offset : (optional) Value of the add_offset attribute
 ! ndims    : (optional) Number of dimensions of the variable
+! varid    : variable ID of created NetCDF variable
 !
 ! ERROR CODE
 ! S%error  : rads_noerr, rads_err_nc_var
@@ -392,20 +394,22 @@ end interface rads_def_var
 ! use rads_misc
 ! type(rads_sat), intent(inout) :: S
 ! type(rads_pass), intent(inout) :: P
-! type(rads_var), intent(in) :: var
+! type(rads_var), intent(in) :: var <or>
+! character(len=*), intent(in) :: varname
 ! real(eightbytereal), intent(in) :: data(:) <or> data(:,:)
 ! integer(fourbyteint), optional, intent(in) :: start(:)
 !
 ! PURPOSE
 ! This routine writes the data array <data> for the variable <var>
-! (referenced by the structure of type(rads_var)) to the netCDF file
+! (referenced by the structure of type(rads_var)) to the NetCDF file
 ! previously opened with rads_create_pass or rads_open_pass.
+! Alternatively, the variable can be referenced by name <varname>.
 !
 ! The data in <data> are in the original SI units (like [m] or [s])
 ! and will be converted to the internal units based on the values of
 ! <var%info%nctype>, <var%info%scale_factor>, <var%info%add_offset>.
 !
-! The argument <start> is be added to indicate an offset
+! The argument <start> can be added to indicate an offset
 ! for storing the data from the first available position in the file.
 ! For example: start=101 first skips 100 records.
 !
@@ -487,6 +491,49 @@ interface rads_parse_varlist
 	module procedure rads_parse_varlist_1d
 end interface rads_parse_varlist
 
+!****if* rads/rads_set_phase
+! SUMMARY
+! Set the pointer to satellite phase info within the S struct
+!
+! SYNTAX
+! subroutine rads_set_phase (S, name <or> cycle <or> time, error)
+! type(rads_sat), intent(inout) :: S
+! character(len=*), intent(in) :: name <or>
+! integer(fourbyteint), intent(in) :: cycle <or>
+! real(eightbytereal), intent(in) :: time
+! logical, optional, intent(out) :: error
+!
+! PURPOSE
+! Set the pointer <S%phase> to the proper phase definitions for the mission
+! phase. The selection of the phase can be done by phase name <name>,
+! cycle number <cycle> or time <time>.
+!
+! In matching the phase name with the database, only the first letter is
+! used. However the path to the directory with NetCDF files will use the
+! entire phase name. In case multiple phases have the same name, the first
+! one will be pointed to.
+!
+! For efficiency, the routine first checks if the current phase is correct.
+!
+! If no matching phase can be found the outcome depends on the use of the
+! optional argument <error>:
+! - If <error> is present, then <error> will refurn .true. (otherwise .false.)
+! - If <error> is not present, the routine prints an error message and the
+!   calling program stops.
+!
+! ARGUMENTS
+! S        : Satellite/mission dependent structure
+! name     : Name of phase
+! cycle    : Cycle number
+! time     : UTC time in seconds since 1985
+!****-------------------------------------------------------------------
+private :: rads_set_phase_by_name, rads_set_phase_by_cycle, rads_set_phase_by_time
+interface rads_set_phase
+	module procedure rads_set_phase_by_name
+	module procedure rads_set_phase_by_cycle
+	module procedure rads_set_phase_by_time
+end interface rads_set_phase
+
 contains
 
 !****if* rads/rads_init_sat_0d
@@ -516,7 +563,8 @@ character(len=*), intent(in), optional :: xml(:)
 ! ERROR CODE
 ! S%error  : rads_noerr, rads_err_xml_file, rads_err_xml_parse, rads_err_var
 !****-------------------------------------------------------------------
-integer(fourbyteint) :: i
+integer(fourbyteint) :: i, n
+logical, allocatable :: mask(:)
 
 call rads_init_sat_struct (S)
 
@@ -565,25 +613,35 @@ endif
 ! If no phases are defined, then the satellite is not known
 if (.not.associated(S%phases)) call rads_exit ('Satellite "'//S%sat//'" unknown')
 
-! When a phase/mission is specifically given, load the appropriate settings
-if (S%spec == '') then
-	! By default, use the largest possible cycle and pass range and set the first (default) phase
-	S%phase => S%phases(1)
-	S%cycles(1) = minval(S%phases%cycles(1))
-	S%cycles(2) = maxval(S%phases%cycles(2))
-	S%passes(2) = maxval(S%phases%passes)
-else
-	S%phase => rads_get_phase(S, S%spec)
-	if (.not.associated(S%phase)) call rads_exit ('No such mission phase "'//trim(S%spec)//'" of satellite "'//S%sat//'"')
-	S%cycles(1:2) = S%phase%cycles
-	S%passes(2) = S%phase%passes
-endif
+! When NaN, set end time of a phase to the start time of the next phase
+! When a phase contains only one cycle, compute the maximum pass number
+n = size(S%phases)
+do i = 1,n-1
+	if (isnan_(S%phases(i)%end_time)) S%phases(i)%end_time = S%phases(i+1)%start_time
+	if (S%phases(i)%cycles(1) == S%phases(i)%cycles(2)) &
+		S%phases(i)%passes = S%phases(i)%ref_pass + 2 * (S%phases(i+1)%ref_orbit-S%phases(i)%ref_orbit) - 1
+enddo
+if (isnan_(S%phases(n)%end_time)) S%phases(n)%end_time = 2051222400d0 ! 2050-01-01
+
+! Default phase is the first mission phase
+S%phase => S%phases(1)
+
+! When no phase/mission is specified: use the largest possible cycle and pass range
+! When a phase/mission is specified: load the appropriate settings
+! This can handle multiple "phase" specifications with the same name
+allocate (mask(size(S%phases)))
+mask = (S%spec == '' .or. S%phases%name(1:1) == S%spec(1:1))
+if (S%spec /= '') call rads_set_phase (S, S%spec)
+S%cycles(1) = minval(S%phases%cycles(1), mask)
+S%cycles(2) = maxval(S%phases%cycles(2), mask)
+S%passes(2) = maxval(S%phases%passes, mask)
+deallocate (mask)
 
 ! Check if variables include the required <data> identifier
 do i = 1,S%nvar
 	if (S%var(i)%info%dataname(:1) == ' ') then
 		call rads_message ('Variable "'//trim(S%var(i)%name)// &
-			'" has no data source specified; assuming netCDF variable "'//trim(S%var(i)%name)//'"')
+			'" has no data source specified; assuming NetCDF variable "'//trim(S%var(i)%name)//'"')
 		S%var(i)%info%dataname = S%var(i)%name
 		S%var(i)%info%datasrc = rads_src_nc_var
 	endif
@@ -666,7 +724,7 @@ end subroutine rads_init_cmd_1d
 ! Initialize empty rads_sat struct
 !
 ! SYNOPSIS
-pure subroutine rads_init_sat_struct (S)
+subroutine rads_init_sat_struct (S)
 type(rads_sat), intent(inout) :: S
 !
 ! PURPOSE
@@ -676,7 +734,7 @@ type(rads_sat), intent(inout) :: S
 ! ARGUMENTS
 ! S        : Satellite/mission dependent structure
 !****-------------------------------------------------------------------
-! gfortran 4.4.1 segfaults on the next line if this routine is made pure or elemental,
+! gfortran 4.3.4 to 4.4.1 segfault on the next line if this routine is made pure or elemental,
 ! so please leave it as a normal routine.
 S = rads_sat ('', '', '', '', '', null(), '', 1d0, (/13.8d0, nan/), 90d0, nan, nan, nan, 1, 1, rads_noerr, &
 	0, 0, 0, 0, 0, .false., '', 0, null(), null(), null(), null(), null(), null(), null(), null())
@@ -687,7 +745,7 @@ end subroutine rads_init_sat_struct
 ! Free all allocated memory from rads_sat struct and reinitialise
 !
 ! SYNOPSIS
-pure subroutine rads_free_sat_struct (S)
+subroutine rads_free_sat_struct (S)
 type(rads_sat), intent(inout) :: S
 !
 ! PURPOSE
@@ -1213,7 +1271,7 @@ end subroutine rads_end_1d
 ! Open RADS pass file
 !
 ! SYNOPSIS
-subroutine rads_open_pass (S, P, cycle, pass, rw)
+subroutine rads_open_pass (S, P, cycle, pass, rw, echofilepaths)
 use netcdf
 use rads_netcdf
 use rads_time
@@ -1223,9 +1281,10 @@ type(rads_sat), intent(inout) :: S
 type(rads_pass), intent(inout) :: P
 integer(fourbyteint), intent(in) :: cycle, pass
 logical, intent(in), optional :: rw
+logical, intent(in), optional :: echofilepaths
 !
 ! PURPOSE
-! This routine opens a netCDF file for access to the RADS machinery.
+! This routine opens a NetCDF file for access to the RADS machinery.
 ! However, prior to opening the file, three tests are performed to speed
 ! up data selection:
 ! (1) All passes outside the preset cycle and pass limits are rejected.
@@ -1239,7 +1298,7 @@ logical, intent(in), optional :: rw
 !     the current pass. If this is outside the limits set in S%eqlonlim
 !     then the pass is rejected.
 !
-! If the pass is rejected based on the above critetia or when no netCDF
+! If the pass is rejected based on the above critetia or when no NetCDF
 ! file exists, S%error returns the warning value rads_warn_nc_file.
 ! If the file cannot be read properly, rads_err_nc_parse is returned.
 ! Also, in both cases, P%ndata will be set to zero.
@@ -1254,6 +1313,8 @@ logical, intent(in), optional :: rw
 ! cycle    : Cycle number
 ! pass     : Pass number
 ! rw       : (optional) Set read/write permission (def: read only)
+! echofilepaths : (optional) Print to standard output the file path before
+!            it is being checked for existence.
 !
 ! ERROR CODE
 ! S%error  : rads_noerr, rads_warn_nc_file, rads_err_nc_parse
@@ -1261,9 +1322,9 @@ logical, intent(in), optional :: rw
 character(len=40) :: date
 character(len=5) :: hz
 character(len=rads_strl) :: string
-integer(fourbyteint) :: i, j1, j2, k, ascdes, cc, pp, ncid
-real(eightbytereal) :: d
+integer(fourbyteint) :: i, j1, j2, k, ascdes, ncid
 real(eightbytereal), pointer :: temp(:,:)
+logical :: error
 
 ! Initialise
 S%error = rads_warn_nc_file
@@ -1271,11 +1332,15 @@ call rads_init_pass_struct (S, P)
 P%cycle = cycle
 P%pass = pass
 ascdes = modulo(pass,2)	! 1 if ascending, 0 if descending
+P%ndata = 0
 
-if (rads_verbose >= 2) write (*,'(a,a3,2i5)') 'Checking sat/cycle/pass : ',S%sat,cycle,pass
+if (rads_verbose >= 2) write (*,'(a,a3,2i5)') 'Checking sat/cycle/pass : ', S%sat, cycle, pass
+
+! If the cycle is out of range for the current phase, look for a new phase
+call rads_set_phase (S, cycle, error)
 
 ! Do checking on cycle limits
-if (cycle < S%cycles(1) .or. cycle > S%cycles(2)) then
+if (error) then
 	S%pass_stat(1) = S%pass_stat(1) + 1
 	return
 endif
@@ -1288,33 +1353,14 @@ if (associated(S%excl_cycles)) then
 	endif
 endif
 
-! If the cycle is out of range for the current phase, look for a new phase
-if (cycle < S%phase%cycles(1) .or. cycle > S%phase%cycles(2)) call rads_set_phase
-
 ! Do checking on pass limits (which may include new phase limits)
 if (pass < S%passes(1) .or. pass > S%passes(2) .or. pass > S%phase%passes) then
 	S%pass_stat(2) = S%pass_stat(2) + 1
 	return
 endif
 
-! Make estimates of the equator time and longitude and time range, which helps screening
-! For constructions with subcycles, convert first to "real" cycle/pass number
-if (associated(S%phase%subcycles)) then
-	cc = cycle - S%phase%subcycles%i
-	pp = S%phase%subcycles%list(modulo(cc,S%phase%subcycles%n)+1) + pass
-	cc = cc / S%phase%subcycles%n + 1
-else
-	cc = cycle
-	pp = pass
-endif
-d = S%phase%pass_seconds
-P%equator_time = S%phase%ref_time + ((cc - S%phase%ref_cycle) * S%phase%repeat_passes + (pp - S%phase%ref_pass)) * d
-P%start_time = P%equator_time - 0.5d0 * d
-P%end_time = P%equator_time + 0.5d0 * d
-d = -S%phase%repeat_nodal * 360d0 / S%phase%repeat_passes ! Longitude advance per pass due to precession of node and earth rotation
-P%equator_lon = modulo(S%phase%ref_lon + (pp - S%phase%ref_pass) * d + modulo(pp - S%phase%ref_pass,2) * 180d0, 360d0)
-if (rads_verbose >= 4) write (*,'(a,3f15.3,f12.6)') 'Estimated start/end/equator time/longitude = ', &
-	P%start_time, P%end_time, P%equator_time, P%equator_lon
+! Predict equator crossing info
+call rads_predict_equator (S, P, cycle, pass)
 
 ! Do checking of pass ends on the time criteria (only when such are given)
 if (.not.all(isnan_(S%time%info%limits))) then
@@ -1326,9 +1372,8 @@ if (.not.all(isnan_(S%time%info%limits))) then
 endif
 
 ! Do checking of equator longitude on the longitude criteria (only when those are limiting)
-d = P%equator_lon
 if (S%eqlonlim(ascdes,2) - S%eqlonlim(ascdes,1) < 360d0) then
-	if (checklon(S%eqlonlim(ascdes,:),d)) then
+	if (checklon(S%eqlonlim(ascdes,:),P%equator_lon)) then
 		if (rads_verbose >= 2) write (*,'(a,3f12.6)') 'Bail out on estimated equator longitude:', &
 			S%eqlonlim(ascdes,:), P%equator_lon
 		S%pass_stat(4+ascdes) = S%pass_stat(4+ascdes) + 1
@@ -1342,6 +1387,16 @@ S%pass_stat(6+ascdes) = S%pass_stat(6+ascdes) + 1
 ! Open pass file
 600 format (a,'/',a,'/',a,'/c',i3.3,'/',a2,'p',i4.4,'c',i3.3,'.nc')
 write (P%fileinfo(1)%name, 600) trim(S%dataroot), trim(S%branch(1)), trim(S%phase%name), cycle, S%sat, pass, cycle
+
+! optional echo of the file in which we are looking for data
+! ...intentionally do this prior to testing if file exists
+601 format ('# checkfile: ',a)
+if (present(echofilepaths)) then
+    if (echofilepaths) then
+        write (*,601) trim(P%fileinfo(1)%name)
+    endif
+endif
+
 if (present(rw)) then
 	P%rw = rw
 else
@@ -1356,10 +1411,16 @@ else
 endif
 P%fileinfo(1)%ncid = ncid
 
-! Read global attributes
+! Get the time dimension
 S%error = rads_err_nc_parse
-if (nft(nf90_inquire_dimension(ncid,1,len=P%ndata))) return
-if (nft(nf90_inquire_dimension(ncid,2,len=P%n_hz))) P%n_hz = 0
+k = index(S%time%info%dataname, ' ') - 1
+if (nft(nf90_inq_dimid(ncid,S%time%info%dataname(:k),i))) return
+if (nft(nf90_inquire_dimension(ncid,i,len=P%ndata))) return
+
+! Get the optional second (n-Hz) dimension
+if (nf90_inq_dimid(ncid,'meas_ind',i) + nf90_inquire_dimension(ncid,i,len=P%n_hz) /= nf90_noerr) P%n_hz = 0
+
+! Read global attributes
 if (nft(nf90_get_att(ncid,nf90_global,'equator_longitude',P%equator_lon))) return
 P%equator_lon = S%lon%info%limits(1) + modulo (P%equator_lon - S%lon%info%limits(1), 360d0)
 if (nft(nf90_get_att(ncid,nf90_global,'equator_time',date))) return
@@ -1491,19 +1552,6 @@ endif
 S%error = rads_noerr
 S%total_inside = S%total_inside + P%ndata
 
-contains
-
-subroutine rads_set_phase
-integer :: i
-do i = 1,size(S%phases)
-	if (cycle >= S%phases(i)%cycles(1) .and. cycle <= S%phases(i)%cycles(2)) then
-		S%phase => S%phases(i)
-		return
-	endif
-enddo
-S%phase => S%phases(1)
-end subroutine rads_set_phase
-
 end subroutine rads_open_pass
 
 !****f* rads/rads_close_pass
@@ -1519,7 +1567,7 @@ type(rads_pass), intent(inout) :: P
 logical, intent(in), optional :: keep
 !
 ! PURPOSE
-! This routine closes a netCDF file previously opened by rads_open_pass.
+! This routine closes a NetCDF file previously opened by rads_open_pass.
 ! The routine will reset the ncid element of the <P> structure to
 ! indicate that the passfile is closed.
 ! If <keep> is set to .true., then the history, flags, time, lat, and lon
@@ -1799,7 +1847,7 @@ contains
 
 include "rads_tpj.f90"
 
-recursive subroutine rads_get_var_nc ! Get data variable from RADS netCDF file
+recursive subroutine rads_get_var_nc ! Get data variable from RADS NetCDF file
 use netcdf
 use rads_netcdf
 integer(fourbyteint) :: start(2), count(2), e, i, nf_get_vara_double, ncid
@@ -1807,7 +1855,7 @@ real(eightbytereal) :: x
 
 ! If time, lat, lon are already read, return those arrays upon request
 if (P%time_dims /= info%ndims) then
-	! Read from netCDF file
+	! Read from NetCDF file
 else if (info%datatype == rads_type_time) then
 	data = P%tll(:,1)
 	return
@@ -1819,7 +1867,7 @@ else if (info%datatype == rads_type_lon) then
 	return
 endif
 
-! Look for the variable name in the netCDF file (or take the stored one)
+! Look for the variable name in the NetCDF file (or take the stored one)
 ncid = P%fileinfo(info%brid)%ncid
 if (P%cycle == info%cycle .and. P%pass == info%pass) then
 	! Keep old varid, but produce error when already tried and failed
@@ -1847,7 +1895,7 @@ start(1) = max(1,abs(P%first_meas))
 if (info%ndims == 0) then
 	! Constant to be converted to 1-dimensional array
 	if (nft(nf90_get_var(ncid, info%varid, data(1)))) then
-		call rads_error (S, rads_err_nc_get, 'Error reading netCDF constant "'//trim(info%dataname)//'" in file', P)
+		call rads_error (S, rads_err_nc_get, 'Error reading NetCDF constant "'//trim(info%dataname)//'" in file', P)
 		return
 	endif
 	data = data(1)
@@ -1855,14 +1903,14 @@ if (info%ndims == 0) then
 else if (info%ndims == 1 .and. S%n_hz_output .and. P%n_hz > 0 .and. P%first_meas > 0) then
 	! 1-dimensional array with duplicated 1-Hz values
 	if (nft(nf90_get_var(ncid, info%varid, data(1:P%ndata:P%n_hz), start))) then
-		call rads_error (S, rads_err_nc_get, 'Error reading netCDF array "'//trim(info%dataname)//'" in file', P)
+		call rads_error (S, rads_err_nc_get, 'Error reading NetCDF array "'//trim(info%dataname)//'" in file', P)
 		return
 	endif
 	forall (i = 1:P%ndata:P%n_hz) data(i+1:i+P%n_hz-1) = data(i)
 else if (info%ndims == 1) then
 	! 1-dimensional array of 1-Hz values
 	if (nft(nf90_get_var(ncid, info%varid, data, start))) then
-		call rads_error (S, rads_err_nc_get, 'Error reading netCDF array "'//trim(info%dataname)//'" in file', P)
+		call rads_error (S, rads_err_nc_get, 'Error reading NetCDF array "'//trim(info%dataname)//'" in file', P)
 		return
 	endif
 else if (info%ndims == 2) then
@@ -1873,7 +1921,7 @@ else if (info%ndims == 2) then
 	count(2) = P%ndata / P%n_hz
 	! We use the Fortran 77 routine here so that we can easily read a 2D field into a 1D array
 	if (nft(nf_get_vara_double(ncid, info%varid, start, count, data))) then
-		call rads_error (S, rads_err_nc_get, 'Error reading netCDF array "'//trim(info%dataname)//'" in file', P)
+		call rads_error (S, rads_err_nc_get, 'Error reading NetCDF array "'//trim(info%dataname)//'" in file', P)
 		return
 	endif
 else
@@ -1899,7 +1947,7 @@ endif
 if (P%rw) info%add_offset = x
 end subroutine rads_get_var_nc
 
-subroutine rads_get_var_nc_att ! Get data attribute from RADS netCDF file
+subroutine rads_get_var_nc_att ! Get data attribute from RADS NetCDF file
 use netcdf
 use rads_netcdf
 use rads_time
@@ -1925,14 +1973,14 @@ if (nft(nf90_inquire_attribute (ncid, varid, info%dataname(i+1:), xtype=info%nct
 if (info%nctype == nf90_char) then
 	! This is likely a date string
 	if (nft(nf90_get_att(ncid, varid, info%dataname(i+1:), date))) then
-		call rads_error (S, rads_err_nc_get, 'Error reading netCDF attribute "'//trim(info%dataname)//'" in file', P)
+		call rads_error (S, rads_err_nc_get, 'Error reading NetCDF attribute "'//trim(info%dataname)//'" in file', P)
 		return
 	endif
 	data = strp1985f (date)
 else
 	! Load an integer or float value
 	if (nft(nf90_get_att(ncid, varid, info%dataname(i+1:), data(1)))) then
-		call rads_error (S, rads_err_nc_get, 'Error reading netCDF attribute "'//trim(info%dataname)//'" in file', P)
+		call rads_error (S, rads_err_nc_get, 'Error reading NetCDF attribute "'//trim(info%dataname)//'" in file', P)
 		return
 	endif
 	data = data(1)
@@ -1957,7 +2005,7 @@ if (info%dataname /= 'flags') then
 		start = max(1,P%first_meas)
 		allocate (P%flags(P%ndata))
 		if (nft(nf90_get_var(ncid, info%varid, P%flags, start))) then
-			call rads_error (S, rads_err_nc_get, 'Error reading netCDF array "flags" in file', P)
+			call rads_error (S, rads_err_nc_get, 'Error reading NetCDF array "flags" in file', P)
 			return
 		endif
 	endif
@@ -2264,10 +2312,13 @@ do
 	! a) Tag contains attribute "sat="
 	! b) The attribute value contains the satellite abbreviaton, or
 	!    the attribute value starts with "!" and does not contain the satellite abbreviation
+	!    (In both cases "*.r" matches all branches with extension ".r")
 	! c) The satellite abbreviation is not set to "??"
 	!
 	! Example 1: for original TOPEX (tx)
 	! sat="tx" => pass
+	! sat="tx.r" => skip
+	! sat="*.r" => skip
 	! sat="j1" => skip
 	! sat="j1 tx" => pass
 	! sat="!j1" => pass
@@ -2276,6 +2327,7 @@ do
 	! Example 2: for TOPEX Retracked (tx.r)
 	! sat="tx" => pass
 	! sat="tx.r" => pass
+	! sat="*.r" => pass
 	! sat="!j1" => pass
 	! sat="!tx" => skip
 	! sat="!tx.r" => skip
@@ -2291,10 +2343,10 @@ do
 			if (skip == 0) skip = 1
 			if (S%sat == '??') then
 				skip = -1
-			else if (attr(2,i)(:1) == '!') then
-				if (index(attr(2,i),S%sat//' ') == 0 .and. index(attr(2,i),trim(S%branch(1))//' ') == 0) skip = -1
-			else
-				if (index(attr(2,i),S%sat//' ') > 0 .or. index(attr(2,i),trim(S%branch(1))//' ') > 0) skip = -1
+			else if ((attr(2,i)(:1) == '!') .eqv. &
+				(index(attr(2,i),S%sat//' ') == 0 .and. index(attr(2,i),trim(S%branch(1))//' ') == 0 &
+					.and. index(attr(2,i),'*'//trim(S%branch(1)(3:))//' ') == 0)) then
+				skip=-1
 			endif
 		case ('var')
 			var => rads_varptr (S, attr(2,i), null())
@@ -2322,7 +2374,7 @@ do
 
 	case ('phase')
 		if (has_name()) then
-			phase => rads_get_phase (S, name, .true.)
+			phase => rads_init_phase (S, name)
 			phase%name = attr(2,1)(:rads_varl)
 		endif
 
@@ -2358,7 +2410,8 @@ do
 		i = index(val(1),' ') ! Position of first space
 		phase%ref_time = strp1985f(val(1)(:i-1))
 		phase%ref_pass = 1
-		read (val(1)(i:), *, iostat=ios) phase%ref_lon, phase%ref_cycle, phase%ref_pass
+		phase%ref_orbit = 1
+		read (val(1)(i:), *, iostat=ios) phase%ref_lon, phase%ref_cycle, phase%ref_pass, phase%ref_orbit
 
 	case ('start_time')
 		phase%start_time = strp1985f(val(1))
@@ -2367,6 +2420,7 @@ do
 		phase%end_time = strp1985f(val(1))
 
 	case ('repeat')
+		phase%repeat_shift = 0d0
 		read (val(:nval), *, iostat=ios) phase%repeat_days, phase%repeat_passes, phase%repeat_shift
 		! Compute length of repeat in nodal days from inclination and repeat in solar days
 		! This assumes 1000 km altitude to get an approximate node rate (in rad/s)
@@ -2594,9 +2648,8 @@ if (S%error > rads_noerr) call rads_exit ('Fatal errors occurred while parsing X
 
 contains
 
-function has_name (field)
+logical function has_name (field)
 integer(twobyteint), optional :: field(2)
-logical :: has_name
 integer :: i, ios
 name = ''
 if (present(field)) field = rads_nofield
@@ -2975,24 +3028,34 @@ integer(fourbyteint), intent(out), optional :: iostat
 type(rads_var), pointer :: var
 var => rads_varptr (S, varname)
 if (.not.associated(var)) return
-if (present(lo)) var%info%limits(1) = lo
-if (present(hi)) var%info%limits(2) = hi
+call rads_set_limits_info (var%info)
+call rads_set_limits_info (var%inf1)
+call rads_set_limits_info (var%inf2)
+
+contains
+
+subroutine rads_set_limits_info (info)
+type(rads_varinfo), pointer :: info
+if (.not.associated(info)) return
+if (present(lo)) info%limits(1) = lo
+if (present(hi)) info%limits(2) = hi
 if (.not.present(string)) then
 else if (string == '') then	! Reset limits to none
-	var%info%limits = nan
+	info%limits = nan
 else ! Read limits (only change the ones given)
-	call read_val (string, var%info%limits, '/', iostat=iostat)
+	call read_val (string, info%limits, '/', iostat=iostat)
 endif
-if (var%info%datatype == rads_type_lat .or. var%info%datatype == rads_type_lon) then
+if (info%datatype == rads_type_lat .or. info%datatype == rads_type_lon) then
 	! If latitude or longitude limits are changed, recompute equator longitude limits
 	call rads_traxxing (S)
-else if (var%info%datatype == rads_type_time) then
+else if (info%datatype == rads_type_time) then
 	! If time limits are changed, also limit the cycles
-	if (isan_(var%info%limits(1))) S%cycles(1) = max(S%cycles(1), rads_time_to_cycle (S, var%info%limits(1)))
-	if (isan_(var%info%limits(2))) S%cycles(2) = min(S%cycles(2), rads_time_to_cycle (S, var%info%limits(2)))
+	if (isan_(info%limits(1))) S%cycles(1) = max(S%cycles(1), rads_time_to_cycle (S, info%limits(1)))
+	if (isan_(info%limits(2))) S%cycles(2) = min(S%cycles(2), rads_time_to_cycle (S, info%limits(2)))
 else if (var%name == 'flags') then
-	call rads_set_limits_by_flagmask (S, var%info%limits)
+	call rads_set_limits_by_flagmask (S, info%limits)
 endif
+end subroutine rads_set_limits_info
 end subroutine rads_set_limits
 
 !****if* rads/rads_set_limits_by_flagmask
@@ -3472,10 +3535,9 @@ end subroutine rads_opt_error
 ! Print message about current program and version
 !
 ! SYNOPSIS
-function rads_version (description, unit, flag)
+logical function rads_version (description, unit, flag)
 character(len=*), intent(in), optional :: description, flag
 integer(fourbyteint), intent(in), optional :: unit
-logical :: rads_version
 !
 ! PURPOSE
 ! This routine prints out a message in one of the following forms,
@@ -3582,7 +3644,7 @@ write (iunit, 1300) trim(progname)
 '  -V, --var VAR1,...        Select variables to be read'/ &
 '  -X, --xml XMLFILE         Load configuration file XMLFILE in addition to the defaults'/ &
 '  -Z, --cmp, --compress VAR=TYPE[,SCALE[,OFFSET]]'/ &
-'                            Specify binary output format for variable VAR (netCDF only); TYPE'/ &
+'                            Specify binary output format for variable VAR (NetCDF only); TYPE'/ &
 '                            is one of: int1, int2, int4, real, dble; SCALE and OFFSET are'/ &
 '                            optional (def: 1,0)'// &
 'Still working for backward compatibility with RADS3 are options:'/ &
@@ -3604,46 +3666,31 @@ end subroutine rads_synopsis
 
 !****if* rads/rads_get_phase
 ! SUMMARY
-! Get pointer to satellite phase info
+! Add new mission phase and get pointer to satellite phase info
 !
 ! SYNOPSIS
-function rads_get_phase (S, name, allow_new) result (phase)
+function rads_init_phase (S, name) result (phase)
 type(rads_sat), intent(inout) :: S
 character(len=*), intent(in) :: name
-logical, intent(in), optional :: allow_new
 type(rads_phase), pointer :: phase
 !
 ! PURPOSE
-! Create pointer to the proper phase definitions for phase <name>.
-! This routine can also create new phase definitions when <allow_new> is
-! set to .true.
-!
-! In matching the phase name with the database, only the first letter is
-! used. However the path to the directory with netCDF files will use the
-! entire phase name.
+! Create a new phase, adding it to the <S%phases> array and create
+! the array if needed. Then create pointer to the phase definitions
+! for this phase.
 !
 ! ARGUMENTS
 ! S        : Satellite/mission dependent structure
 ! name     : Name of phase
-! allow_new: Allow the creation of a new phase
+!
+! ERROR CODE:
+! S%error  : rads_noerr, rads_err_nophase
 !****-------------------------------------------------------------------
-integer(fourbyteint) :: i, n
+integer(fourbyteint) :: n
 type(rads_phase), pointer :: temp(:)
 nullify (phase)
 n = 0
 if (associated(S%phases)) n = size(S%phases)
-
-! Search for the correct phase name
-do i = 1,n
-	if (S%phases(i)%name(1:1) == name(1:1)) then
-		phase => S%phases(i)
-		return
-	endif
-enddo
-
-! No matching name found. Only continue when allow_new = .true.
-if (.not.present(allow_new)) return
-if (.not.allow_new) return
 
 ! Allocate S%phases for the first time, or reallocate more space
 if (n == 0) then
@@ -3658,30 +3705,166 @@ else
 endif
 
 ! Initialize the new phase information and direct the pointer
-S%phases(n) = rads_phase (name(1:1), '', (/999,0/), 0, nan, nan, nan, nan, 0, 0, nan, nan, nan, 0, 0, null())
+S%phases(n) = rads_phase (name(1:1), '', (/999,0/), 0, nan, nan, nan, nan, 0, 0, 0, nan, nan, nan, 0, 0, null())
 phase => S%phases(n)
-end function rads_get_phase
+end function rads_init_phase
 
-!****if* rads/rads_time_to_cycle
-! SUMMARY
-! Determine cycle number for given epoch
-!
-! SYNOPSIS
-function rads_time_to_cycle (S, time)
+subroutine rads_set_phase_by_name (S, name, error)
+type(rads_sat), intent(inout) :: S
+character(len=*), intent(in) :: name
+logical, optional, intent(out) :: error
+integer :: i
+if (present(error)) error = .false.
+S%error = rads_noerr
+! Check if we are already in the right mission phase
+if (name(1:1) == S%phase%name(1:1)) return
+! Check all mission phases
+do i = 1,size(S%phases)
+	if (name(1:1) == S%phases(i)%name(1:1)) then
+		S%phase => S%phases(i)
+		return
+	endif
+enddo
+if (present(error)) then
+	error = .true.
+	S%error = rads_err_nophase
+else
+	call rads_exit ('No mission phase "'//trim(name)//'" for satellite "'//S%sat//'"')
+endif
+end subroutine rads_set_phase_by_name
+
+subroutine rads_set_phase_by_cycle (S, cycle, error)
+type(rads_sat), intent(inout) :: S
+integer(fourbyteint), intent(in) :: cycle
+logical, optional, intent(out) :: error
+integer :: i
+character(len=3) :: name
+if (present(error)) error = .false.
+S%error = rads_noerr
+! Check if we are already in the right mission phase
+if (cycle >= S%phase%cycles(1) .and. cycle <= S%phase%cycles(2)) return
+! Check all mission phases
+do i = 1,size(S%phases)
+	if (cycle >= S%phases(i)%cycles(1) .and. cycle <= S%phases(i)%cycles(2)) then
+		S%phase => S%phases(i)
+		return
+	endif
+enddo
+if (present(error)) then
+	error = .true.
+	S%error = rads_err_nophase
+else
+	write (name, '(i3.3)') cycle
+	call rads_exit ('No cycle '//name//' for any mission phase of satellite "'//S%sat//'"')
+endif
+end subroutine rads_set_phase_by_cycle
+
+subroutine rads_set_phase_by_time (S, time, error)
+use rads_time
 type(rads_sat), intent(inout) :: S
 real(eightbytereal), intent(in) :: time
-integer(fourbyteint) :: rads_time_to_cycle
+logical, optional, intent(out) :: error
+integer :: i
+if (present(error)) error = .false.
+S%error = rads_noerr
+! Check if we are already in the right mission phase
+if (time >= S%phase%start_time .and. time <= S%phase%end_time) return
+! Check all mission phases
+do i = 1,size(S%phases)
+	if (time >= S%phases(i)%start_time .and. time <= S%phases(i)%end_time) then
+		S%phase => S%phases(i)
+		return
+	endif
+enddo
+if (present(error)) then
+	error = .true.
+	S%error = rads_err_nophase
+else
+	call rads_exit ('Time '//strf1985f(time)//' is outside any mission phase of satellite "'//S%sat//'"')
+endif
+end subroutine rads_set_phase_by_time
+
+!****f* rads/rads_predict_equator
+! SUMMARY
+! Predict equator crossing time and longitude
+!
+! SYNOPSIS
+subroutine rads_predict_equator (S, P, cycle, pass)
+type(rads_sat), intent(inout) :: S
+type(rads_pass), intent(inout) :: P
+integer(fourbyteint), intent(in) :: cycle, pass
 !
 ! PURPOSE
-! Given an epoch <time> in seconds since 1985, determine the cycle in
-! which that epoch falls.
+! This routine estimates the equator time and longitude, as well
+! as the start and end time of a given <cycle> and <pass>.
+!
+! The routine works for exact repeat orbits as well as drifting
+! orbits.
+!
+! The estimated variables (equator_time, equator_lon, start_time, end_time)
+! are returned in the pass struct <P>.
+!
+! ARGUMENTS
+! S        : Satellite/mission dependent structure
+! P        : Pass structure
+! cycle    : Cycle number
+! pass     : Pass number
+!
+! ERROR CODE
+! S%error  : rads_noerr, rads_err_nophase
+!****-------------------------------------------------------------------
+integer(fourbyteint) :: cc, pp
+real(eightbytereal) :: d, e
+logical :: error
+
+! If the cycle is out of range for the current phase, look for a new phase
+call rads_set_phase (S, cycle, error)
+if (error) return
+
+! For constructions with subcycles, convert first to "real" cycle/pass number
+if (associated(S%phase%subcycles)) then
+	cc = cycle - S%phase%subcycles%i
+	pp = S%phase%subcycles%list(modulo(cc,S%phase%subcycles%n)+1) + pass
+	cc = cc / S%phase%subcycles%n + 1
+else
+	cc = cycle
+	pp = pass
+endif
+
+! Now do the estimation process
+d = S%phase%pass_seconds
+P%equator_time = S%phase%ref_time + ((cc - S%phase%ref_cycle) * S%phase%repeat_passes + (pp - S%phase%ref_pass)) * d
+P%start_time = P%equator_time - 0.5d0 * d
+P%end_time = P%equator_time + 0.5d0 * d
+d = -S%phase%repeat_nodal * 360d0 / S%phase%repeat_passes ! Longitude advance per pass due to precession of node and earth rotation
+e = S%phase%repeat_shift * (P%equator_time - S%phase%ref_time) / S%phase%pass_seconds / S%phase%repeat_passes ! Longitude shift per cycle
+P%equator_lon = modulo(S%phase%ref_lon + (pp - S%phase%ref_pass) * d + e + modulo(pp - S%phase%ref_pass,2) * 180d0, 360d0)
+if (rads_verbose >= 4) write (*,'(a,3f15.3,f12.6)') 'Estimated start/end/equator time/longitude = ', &
+	P%start_time, P%end_time, P%equator_time, P%equator_lon
+S%error = rads_noerr
+end subroutine rads_predict_equator
+
+!****if* rads/rads_time_to_cycle_pass
+! SUMMARY
+! Determine cycle and pass number for given epoch
+!
+! SYNOPSIS
+subroutine rads_time_to_cycle_pass (S, time, cycle, pass)
+type(rads_sat), intent(inout) :: S
+real(eightbytereal), intent(in) :: time
+integer(fourbyteint), intent(out) :: cycle, pass
+!
+! PURPOSE
+! Given an epoch <time> in seconds since 1985, determine the <cycle>
+! number and <pass> number in which that epoch falls.
+! This routine also updates the <S%phase> pointer to point to the
+! appropriate structure containing the phase information.
 !
 ! ARGUMENTS
 ! S        : Satellite/mission dependent structure
 ! time     : Time in seconds since 1985
-!
-! RETURN VALUE
-! rads_time_to_cycle : Cycle number in which <time> falls
+! cycle    : Cycle number in which <time> falls
+! pass     : Pass number in which <time> falls
 !****-------------------------------------------------------------------
 integer :: i, j, n
 real(eightbytereal) :: d, t0, x
@@ -3696,19 +3879,49 @@ enddo
 ! Estimate the cycle from the time
 d = S%phases(i)%pass_seconds
 t0 = S%phases(i)%ref_time - (S%phases(i)%ref_pass - 0.5d0) * d ! Time of start of ref_cycle
-x = time - t0
-rads_time_to_cycle = floor(x / (S%phases(i)%repeat_days * 86400d0)) + S%phases(i)%ref_cycle
+x = (time - t0) / (S%phases(i)%repeat_days * 86400d0) + S%phases(i)%ref_cycle
+cycle = floor(x)
+pass = int((x - cycle) * S%phases(i)%repeat_passes + 1)
 
 ! When there are subcycles, compute the subcycle number
 if (associated(S%phases(i)%subcycles)) then
-	x = x - (rads_time_to_cycle - S%phases(i)%ref_cycle) * (S%phases(i)%repeat_days * 86400d0)
-	rads_time_to_cycle = (rads_time_to_cycle - 1) * S%phases(i)%subcycles%n + S%phases(i)%subcycles%i
+	x = (time - t0) - (cycle - S%phases(i)%ref_cycle) * (S%phases(i)%repeat_days * 86400d0)
+	cycle = (cycle - 1) * S%phases(i)%subcycles%n + S%phases(i)%subcycles%i
 	n = floor(x / d)
 	do j = 2,S%phases(i)%subcycles%n
 		if (S%phases(i)%subcycles%list(j) > n) exit
-		rads_time_to_cycle = rads_time_to_cycle + 1
+		cycle = cycle + 1
 	enddo
+	pass = n - S%phases(i)%subcycles%list(j-1) + 1
 endif
+
+! Link the phase
+S%phase => S%phases(i)
+end subroutine rads_time_to_cycle_pass
+
+!****if* rads/rads_time_to_cycle
+! SUMMARY
+! Determine cycle number for given epoch
+!
+! SYNOPSIS
+function rads_time_to_cycle (S, time)
+type(rads_sat), intent(inout) :: S
+real(eightbytereal), intent(in) :: time
+integer(fourbyteint) :: rads_time_to_cycle
+!
+! PURPOSE
+! Given an epoch <time> in seconds since 1985, determine the cycle
+! number in which that epoch falls.
+!
+! ARGUMENTS
+! S        : Satellite/mission dependent structure
+! time     : Time in seconds since 1985
+!
+! RETURN VALUE
+! rads_time_to_cycle : Cycle number in which <time> falls
+!****-------------------------------------------------------------------
+integer(fourbyteint) :: pass
+call rads_time_to_cycle_pass (S, time, rads_time_to_cycle, pass)
 end function rads_time_to_cycle
 
 !***********************************************************************
@@ -3955,7 +4168,7 @@ integer(fourbyteint), intent(in), optional :: ndata, n_hz, n_wvf
 character(len=*), intent(in), optional :: name
 !
 ! PURPOSE
-! This routine creates a new RADS netCDF data file. If one of the same
+! This routine creates a new RADS NetCDF data file. If one of the same
 ! file name already exists, it is removed.
 ! The file is initialized with the appropriate global attributes, and
 ! the dimensions ('time' and optionally 'meas_ind' and 'wvf_ind') will be set up.
@@ -3966,7 +4179,7 @@ character(len=*), intent(in), optional :: name
 ! When the <ndata> argument is omitted, the value <P%ndata> is used.
 !
 ! The optional argument <n_hz> gives the size of the secondary dimension for
-! multi-Hertz data. When <h_hz> is omitted, the value <P%n_hz> is used.
+! multi-Hertz data. When <n_hz> is omitted, the value <P%n_hz> is used.
 ! When n_hz == 0, no secondary dimension is created.
 !
 ! The optional argument <name> can have one of three forms:
@@ -4170,7 +4383,7 @@ enddo
 e = nf90_put_att (ncid, nf90_global, 'original', P%original)
 end subroutine rads_put_history
 
-subroutine rads_def_var_by_var_0d (S, P, var, nctype, scale_factor, add_offset, ndims)
+subroutine rads_def_var_by_var_0d (S, P, var, nctype, scale_factor, add_offset, ndims, varid)
 use netcdf
 use rads_netcdf
 type(rads_sat), intent(inout) :: S
@@ -4178,9 +4391,10 @@ type(rads_pass), intent(inout) :: P
 type(rads_var), intent(in) :: var
 integer(fourbyteint), intent(in), optional :: nctype, ndims
 real(eightbytereal), intent(in), optional :: scale_factor, add_offset
+integer(fourbyteint), intent(out), optional :: varid
 type(rads_varinfo), pointer :: info
-integer(fourbyteint) :: e, n, xtype, ncid
-integer :: j=0, j0, j1
+integer(fourbyteint) :: e, n, xtype, ncid, varid_
+integer :: j=0, j0, j1! k
 character(len=5) :: hz
 S%error = rads_noerr
 ncid = P%fileinfo(1)%ncid
@@ -4195,30 +4409,34 @@ if (present(ndims)) info%ndims = ndims
 ! Set the range of dimensions to be referenced
 j0 = 1
 j1 = info%ndims
+!k = index(S%time%info%dataname, ' ') - 1
+!if (nft(nf90_inq_dimid(ncid,S%time%info%dataname(:k),j1))) return
+!j0 = j1 - info%ndims + 1
+!if (j1 .eq. 1 .and. info%ndims .eq. 2) then
+!	j0 = 1
+!	j1 = 2
+!endif
 if (info%datatype == rads_type_dim) j0 = j1 ! Single dimension that is not primary
 
 ! Make sure we are in define mode and that we can write
 if (nf90_redef (ncid) == nf90_eperm) call rads_error (S, rads_err_nc_put, 'File not opened for writing:', P)
 
 ! First check if the variable already exists
-if (nff(nf90_inq_varid(ncid, var%name, info%varid))) then
-	e = nf90_inquire_variable (ncid, info%varid, xtype=xtype, ndims=n)
+if (nff(nf90_inq_varid(ncid, var%name, varid_))) then
+	e = nf90_inquire_variable (ncid, varid_, xtype=xtype, ndims=n)
 	if (xtype /= info%nctype .or. n /= info%ndims) then
 		call rads_error (S, rads_err_nc_var, &
 			'Cannot redefine variable "'//trim(var%name)//'" with different type or dimension in file', P)
 		return
 	endif
-! Define a constant (always as double)
+! Define a constant
 else if (info%ndims == 0) then
-	info%scale_factor = 1d0
-	info%add_offset = 0d0
-	info%nctype = nf90_double
-	if (nft(nf90_def_var(ncid, var%name, info%nctype, info%varid))) then
+	if (nft(nf90_def_var(ncid, var%name, info%nctype, varid_))) then
 		call rads_error (S, rads_err_nc_var, 'Error creating variable "'//trim(var%name)//'" in file', P)
 		return
 	endif
 ! Define a 1- or 2-dimensional variable
-else if (nft(nf90_def_var(ncid, var%name, info%nctype, (/(j,j=j1,j0,-1)/), info%varid))) then
+else if (nft(nf90_def_var(ncid, var%name, info%nctype, (/(j,j=j1,j0,-1)/), varid_))) then
 	call rads_error (S, rads_err_nc_var, 'Error creating variable "'//trim(var%name)//'" in file', P)
 	return
 endif
@@ -4228,52 +4446,53 @@ e = 0
 if (info%datatype == rads_type_dim) then
 	! Do not write _FillValue for dimension coordinates, like meas_ind
 else if (info%nctype == nf90_int1) then
-	e = e + nf90_put_att (ncid, info%varid, '_FillValue', huge(0_onebyteint))
+	e = e + nf90_put_att (ncid, varid_, '_FillValue', huge(0_onebyteint))
 else if (info%nctype == nf90_int2) then
-	e = e + nf90_put_att (ncid, info%varid, '_FillValue', huge(0_twobyteint))
+	e = e + nf90_put_att (ncid, varid_, '_FillValue', huge(0_twobyteint))
 else if (info%nctype == nf90_int4) then
-	e = e + nf90_put_att (ncid, info%varid, '_FillValue', huge(0_fourbyteint))
+	e = e + nf90_put_att (ncid, varid_, '_FillValue', huge(0_fourbyteint))
 endif
-e = e + nf90_put_att (ncid, info%varid, 'long_name', trim(info%long_name))
-if (info%standard_name /= '') e = e + nf90_put_att (ncid, info%varid, 'standard_name', trim(info%standard_name))
-if (info%source /= '') e = e + nf90_put_att (ncid, info%varid, 'source', trim(info%source))
-if (info%units /= '') e = e + nf90_put_att (ncid, info%varid, 'units', trim(info%units))
+e = e + nf90_put_att (ncid, varid_, 'long_name', trim(info%long_name))
+if (info%standard_name /= '') e = e + nf90_put_att (ncid, varid_, 'standard_name', trim(info%standard_name))
+if (info%source /= '') e = e + nf90_put_att (ncid, varid_, 'source', trim(info%source))
+if (info%units /= '') e = e + nf90_put_att (ncid, varid_, 'units', trim(info%units))
 if (info%datatype == rads_type_flagmasks) then
 	n = count_spaces (info%flag_meanings)
 	if (info%nctype == nf90_int1) then
-		e = e + nf90_put_att (ncid, info%varid, 'flag_masks', int(flag_masks(0:n),onebyteint))
+		e = e + nf90_put_att (ncid, varid_, 'flag_masks', int(flag_masks(0:n),onebyteint))
 	else
-		e = e + nf90_put_att (ncid, info%varid, 'flag_masks', flag_masks(0:n))
+		e = e + nf90_put_att (ncid, varid_, 'flag_masks', flag_masks(0:n))
 	endif
-	e = e + nf90_put_att (ncid, info%varid, 'flag_meanings', info%flag_meanings)
+	e = e + nf90_put_att (ncid, varid_, 'flag_meanings', info%flag_meanings)
 else if (info%datatype == rads_type_flagvalues) then
 	n = count_spaces (info%flag_meanings)
 	if (info%nctype == nf90_int1) then
-		e = e + nf90_put_att (ncid, info%varid, 'flag_values', flag_values(0:n))
+		e = e + nf90_put_att (ncid, varid_, 'flag_values', flag_values(0:n))
 	else
-		e = e + nf90_put_att (ncid, info%varid, 'flag_values', int(flag_values(0:n),twobyteint))
+		e = e + nf90_put_att (ncid, varid_, 'flag_values', int(flag_values(0:n),twobyteint))
 	endif
-	e = e + nf90_put_att (ncid, info%varid, 'flag_meanings', info%flag_meanings)
+	e = e + nf90_put_att (ncid, varid_, 'flag_meanings', info%flag_meanings)
 endif
-if (info%quality_flag /= '') e = e + nf90_put_att (ncid, info%varid, 'quality_flag', info%quality_flag)
-if (info%scale_factor /= 1d0) e = e + nf90_put_att (ncid, info%varid, 'scale_factor', info%scale_factor)
-if (info%add_offset /= 0d0)  e = e + nf90_put_att (ncid, info%varid, 'add_offset', info%add_offset)
+if (info%quality_flag /= '') e = e + nf90_put_att (ncid, varid_, 'quality_flag', info%quality_flag)
+if (info%scale_factor /= 1d0) e = e + nf90_put_att (ncid, varid_, 'scale_factor', info%scale_factor)
+if (info%add_offset /= 0d0)  e = e + nf90_put_att (ncid, varid_, 'add_offset', info%add_offset)
 if (info%datatype >= rads_type_time .or. info%dataname(:1) == ':' .or. info%ndims < 1) then
 	! Do not add coordinate attribute for some data types
 else if (info%ndims > 1 .and. S%n_hz_output .and. P%n_hz > 1) then
 	! For multi-Hz data: use 'lon_#hz lat_#hz'
 	write (hz, '("_",i2.2,"hz")') P%n_hz
-	e = e + nf90_put_att (ncid, info%varid, 'coordinates', 'lon'//hz//' lat'//hz)
+	e = e + nf90_put_att (ncid, varid_, 'coordinates', 'lon'//hz//' lat'//hz)
 else
 	! All other types: use 'lon lat'
-	e = e + nf90_put_att (ncid, info%varid, 'coordinates', 'lon lat')
+	e = e + nf90_put_att (ncid, varid_, 'coordinates', 'lon lat')
 endif
-if (var%field(1) /= rads_nofield) e = e + nf90_put_att (ncid, info%varid, 'field', var%field(1))
-if (info%comment /= '') e = e + nf90_put_att (ncid, info%varid, 'comment', info%comment)
+if (var%field(1) /= rads_nofield) e = e + nf90_put_att (ncid, varid_, 'field', var%field(1))
+if (info%comment /= '') e = e + nf90_put_att (ncid, varid_, 'comment', info%comment)
 if (e /= 0) call rads_error (S, rads_err_nc_var, &
 	'Error writing attributes for variable "'//trim(var%name)//'" in file', P)
 info%cycle = P%cycle
 info%pass = P%pass
+if (present(varid)) varid = varid_
 
 contains
 
@@ -4288,29 +4507,31 @@ end function count_spaces
 
 end subroutine rads_def_var_by_var_0d
 
-subroutine rads_def_var_by_var_1d (S, P, var, nctype, scale_factor, add_offset, ndims)
+subroutine rads_def_var_by_var_1d (S, P, var, nctype, scale_factor, add_offset, ndims, varid)
 type(rads_sat), intent(inout) :: S
 type(rads_pass), intent(inout) :: P
 type(rads_var), intent(in) :: var(:)
 integer(fourbyteint), intent(in), optional :: nctype, ndims
 real(eightbytereal), intent(in), optional :: scale_factor, add_offset
+integer(fourbyteint), intent(out), optional :: varid
 integer :: i
 do i = 1,size(var)
-	call rads_def_var_by_var_0d (S, P, var(i), nctype, scale_factor, add_offset, ndims)
+	call rads_def_var_by_var_0d (S, P, var(i), nctype, scale_factor, add_offset, ndims, varid)
 	if (S%error /= rads_noerr) return
 enddo
 end subroutine rads_def_var_by_var_1d
 
-subroutine rads_def_var_by_name (S, P, varname, nctype, scale_factor, add_offset, ndims)
+subroutine rads_def_var_by_name (S, P, varname, nctype, scale_factor, add_offset, ndims, varid)
 type(rads_sat), intent(inout) :: S
 type(rads_pass), intent(inout) :: P
 character(len=*), intent(in) :: varname
 integer(fourbyteint), intent(in), optional :: nctype, ndims
 real(eightbytereal), intent(in), optional :: scale_factor, add_offset
+integer(fourbyteint), intent(out), optional :: varid
 type(rads_var), pointer :: var
 var => rads_varptr (S, varname)
 if (S%error /= rads_noerr) return
-call rads_def_var_by_var_0d (S, P, var, nctype, scale_factor, add_offset, ndims)
+call rads_def_var_by_var_0d (S, P, var, nctype, scale_factor, add_offset, ndims, varid)
 if (S%error /= rads_noerr) return
 end subroutine rads_def_var_by_name
 
@@ -4319,10 +4540,12 @@ use netcdf
 use rads_netcdf
 type(rads_sat), intent(inout) :: S
 type(rads_pass), intent(inout) :: P
-type(rads_var), intent(inout) :: var
+type(rads_var), intent(in) :: var
 real(eightbytereal), intent(in) :: data
-if (rads_put_var_helper (S, P, var)) return
-if (nft(nf90_put_var (P%fileinfo(1)%ncid, var%info%varid, data))) call rads_error (S, rads_err_nc_put, &
+integer(fourbyteint) :: varid
+varid = rads_put_var_helper (S, P, var%name)
+if (varid == 0) return
+if (nft(nf90_put_var (P%fileinfo(1)%ncid, varid, data))) call rads_error (S, rads_err_nc_put, &
 	'Error writing data for variable "'//trim(var%name)//'" to file', P)
 end subroutine rads_put_var_by_var_0d
 
@@ -4340,7 +4563,7 @@ end subroutine rads_put_var_by_name_0d
 subroutine rads_put_var_by_var_1d (S, P, var, data)
 type(rads_sat), intent(inout) :: S
 type(rads_pass), intent(inout) :: P
-type(rads_var), intent(inout) :: var
+type(rads_var), intent(in) :: var
 real(eightbytereal), intent(in) :: data(:)
 call rads_put_var_by_var_1d_start (S, P, var, data, (/1/))
 end subroutine rads_put_var_by_var_1d
@@ -4362,21 +4585,22 @@ use rads_netcdf
 use rads_misc
 type(rads_sat), intent(inout) :: S
 type(rads_pass), intent(inout) :: P
-type(rads_var), intent(inout) :: var
+type(rads_var), intent(in) :: var
 real(eightbytereal), intent(in) :: data(:)
 integer(fourbyteint), intent(in) :: start(:)
-integer(fourbyteint) :: e, ncid
-if (rads_put_var_helper (S, P, var)) return
+integer(fourbyteint) :: e, ncid, varid
+varid = rads_put_var_helper (S, P, var%name)
+if (varid == 0) return
 ncid = P%fileinfo(1)%ncid
 select case (var%info%nctype)
 case (nf90_int1)
-	e = nf90_put_var (ncid, var%info%varid, nint1((data - var%info%add_offset) / var%info%scale_factor), start)
+	e = nf90_put_var (ncid, varid, nint1((data - var%info%add_offset) / var%info%scale_factor), start)
 case (nf90_int2)
-	e = nf90_put_var (ncid, var%info%varid, nint2((data - var%info%add_offset) / var%info%scale_factor), start)
+	e = nf90_put_var (ncid, varid, nint2((data - var%info%add_offset) / var%info%scale_factor), start)
 case (nf90_int4)
-	e = nf90_put_var (ncid, var%info%varid, nint4((data - var%info%add_offset) / var%info%scale_factor), start)
+	e = nf90_put_var (ncid, varid, nint4((data - var%info%add_offset) / var%info%scale_factor), start)
 case default
-	e = nf90_put_var (ncid, var%info%varid, (data - var%info%add_offset) / var%info%scale_factor, start)
+	e = nf90_put_var (ncid, varid, (data - var%info%add_offset) / var%info%scale_factor, start)
 end select
 if (e /= 0) call rads_error (S, rads_err_nc_put, &
 	'Error writing data for variable "'//trim(var%name)//'" to file', P)
@@ -4385,7 +4609,7 @@ end subroutine rads_put_var_by_var_1d_start
 subroutine rads_put_var_by_var_2d (S, P, var, data)
 type(rads_sat), intent(inout) :: S
 type(rads_pass), intent(inout) :: P
-type(rads_var), intent(inout) :: var
+type(rads_var), intent(in) :: var
 real(eightbytereal), intent(in) :: data(:,:)
 call rads_put_var_by_var_2d_start (S, P, var, data, (/1,1/))
 end subroutine rads_put_var_by_var_2d
@@ -4407,21 +4631,22 @@ use rads_netcdf
 use rads_misc
 type(rads_sat), intent(inout) :: S
 type(rads_pass), intent(inout) :: P
-type(rads_var), intent(inout) :: var
+type(rads_var), intent(in) :: var
 real(eightbytereal), intent(in) :: data(:,:)
 integer(fourbyteint), intent(in) :: start(:)
-integer(fourbyteint) :: e, ncid
-if (rads_put_var_helper (S, P, var)) return
+integer(fourbyteint) :: e, ncid, varid
+varid = rads_put_var_helper (S, P, var%name)
+if (varid == 0) return
 ncid = P%fileinfo(1)%ncid
 select case (var%info%nctype)
 case (nf90_int1)
-	e = nf90_put_var (ncid, var%info%varid, nint1((data - var%info%add_offset) / var%info%scale_factor), start)
+	e = nf90_put_var (ncid, varid, nint1((data - var%info%add_offset) / var%info%scale_factor), start)
 case (nf90_int2)
-	e = nf90_put_var (ncid, var%info%varid, nint2((data - var%info%add_offset) / var%info%scale_factor), start)
+	e = nf90_put_var (ncid, varid, nint2((data - var%info%add_offset) / var%info%scale_factor), start)
 case (nf90_int4)
-	e = nf90_put_var (ncid, var%info%varid, nint4((data - var%info%add_offset) / var%info%scale_factor), start)
+	e = nf90_put_var (ncid, varid, nint4((data - var%info%add_offset) / var%info%scale_factor), start)
 case default
-	e = nf90_put_var (ncid, var%info%varid, (data - var%info%add_offset) / var%info%scale_factor, start)
+	e = nf90_put_var (ncid, varid, (data - var%info%add_offset) / var%info%scale_factor, start)
 end select
 if (e /= 0) call rads_error (S, rads_err_nc_put, &
 	'Error writing data for variable "'//trim(var%name)//'" to file', P)
@@ -4430,7 +4655,7 @@ end subroutine rads_put_var_by_var_2d_start
 subroutine rads_put_var_by_var_3d (S, P, var, data)
 type(rads_sat), intent(inout) :: S
 type(rads_pass), intent(inout) :: P
-type(rads_var), intent(inout) :: var
+type(rads_var), intent(in) :: var
 real(eightbytereal), intent(in) :: data(:,:,:)
 call rads_put_var_by_var_3d_start (S, P, var, data, (/1,1,1/))
 end subroutine rads_put_var_by_var_3d
@@ -4452,47 +4677,47 @@ use rads_netcdf
 use rads_misc
 type(rads_sat), intent(inout) :: S
 type(rads_pass), intent(inout) :: P
-type(rads_var), intent(inout) :: var
+type(rads_var), intent(in) :: var
 real(eightbytereal), intent(in) :: data(:,:,:)
 integer(fourbyteint), intent(in) :: start(:)
-integer(fourbyteint) :: e, ncid
-if (rads_put_var_helper (S, P, var)) return
+integer(fourbyteint) :: e, ncid, varid
+varid = rads_put_var_helper (S, P, var%name)
+if (varid == 0) return
 ncid = P%fileinfo(1)%ncid
 select case (var%info%nctype)
 case (nf90_int1)
-	e = nf90_put_var (ncid, var%info%varid, nint1((data - var%info%add_offset) / var%info%scale_factor), start)
+	e = nf90_put_var (ncid, varid, nint1((data - var%info%add_offset) / var%info%scale_factor), start)
 case (nf90_int2)
-	e = nf90_put_var (ncid, var%info%varid, nint2((data - var%info%add_offset) / var%info%scale_factor), start)
+	e = nf90_put_var (ncid, varid, nint2((data - var%info%add_offset) / var%info%scale_factor), start)
 case (nf90_int4)
-	e = nf90_put_var (ncid, var%info%varid, nint4((data - var%info%add_offset) / var%info%scale_factor), start)
+	e = nf90_put_var (ncid, varid, nint4((data - var%info%add_offset) / var%info%scale_factor), start)
 case default
-	e = nf90_put_var (ncid, var%info%varid, (data - var%info%add_offset) / var%info%scale_factor, start)
+	e = nf90_put_var (ncid, varid, (data - var%info%add_offset) / var%info%scale_factor, start)
 end select
 if (e /= 0) call rads_error (S, rads_err_nc_put, &
 	'Error writing data for variable "'//trim(var%name)//'" to file', P)
 end subroutine rads_put_var_by_var_3d_start
 
-logical function rads_put_var_helper (S, P, var)
+function rads_put_var_helper (S, P, varname)
 use netcdf
 use rads_netcdf
 type(rads_sat), intent(inout) :: S
 type(rads_pass), intent(inout) :: P
-type(rads_var), intent(inout) :: var
-integer(fourbyteint) :: e, ncid
+character(len=*), intent(in) :: varname
+integer(fourbyteint) :: rads_put_var_helper
+integer(fourbyteint) :: e, ncid, varid
 S%error = rads_noerr
 ncid = P%fileinfo(1)%ncid
 e = nf90_enddef (ncid) ! Make sure to get out of define mode
 if (.not.P%rw) then
 	call rads_error (S, rads_err_nc_put, &
-	'File not opened for writing variable "'//trim(var%name)//'":', P)
-	rads_put_var_helper = .true.
-else if (P%cycle == var%info%cycle .and. P%pass == var%info%pass) then
-	rads_put_var_helper = .false. ! Keep old varid
-else if (nft(nf90_inq_varid (ncid, var%name, var%info%varid))) then
-	call rads_error (S, rads_err_nc_var, 'No variable "'//trim(var%name)//'" in file', P)
-	rads_put_var_helper = .true.
+	'File not opened for writing variable "'//trim(varname)//'":', P)
+	rads_put_var_helper = 0
+else if (nft(nf90_inq_varid (ncid, varname, varid))) then
+	call rads_error (S, rads_err_nc_var, 'No variable "'//trim(varname)//'" in file', P)
+	rads_put_var_helper = 0
 else
-	rads_put_var_helper = .false. ! Set new varid
+	rads_put_var_helper = varid ! Use varid determined above
 endif
 end function rads_put_var_helper
 

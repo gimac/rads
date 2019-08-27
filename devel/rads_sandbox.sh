@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------
-# Copyright (c) 2011-2016  Remko Scharroo
+# Copyright (c) 2011-2019  Remko Scharroo
 # See LICENSE.TXT file for copying and redistribution conditions.
 #
 # This program is free software: you can redistribute it and/or modify
@@ -21,7 +21,8 @@
 # rads_close_sandbox - move data from RADS sandbox and remove the sandbox
 # Usage: rads_close_sandbox [additional-rsync-options]
 
-. radsconfig.sh
+export RADSDATAROOT=`rads-config --datadir`
+export RADSROOT=${RADSDATAROOT%/data*}
 
 rads_job=`basename $0 .sh`
 
